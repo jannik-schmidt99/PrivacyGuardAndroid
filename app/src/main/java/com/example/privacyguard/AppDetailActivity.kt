@@ -21,7 +21,9 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButtonToggleGroup
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 class AppDetailActivity : AppCompatActivity() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -38,10 +40,15 @@ class AppDetailActivity : AppCompatActivity() {
     private lateinit var liveMonitorButton: Button
     private lateinit var clearLiveLogButton: Button
     private lateinit var liveConnectionsContainer: LinearLayout
+    private lateinit var behaviorSummary: TextView
+    private lateinit var behaviorHighlightsContainer: LinearLayout
+    private lateinit var behaviorTimelineContainer: LinearLayout
+    private lateinit var clearBehaviorHistoryButton: Button
     private lateinit var destinationSummary: TextView
     private lateinit var clearDestinationHistoryButton: Button
     private lateinit var destinationHistoryContainer: LinearLayout
     private var selectedPeriodMillis = DAY
+    private var lastBehaviorRenderMillis = 0L
 
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && ::packageNameValue.isInitialized) {
@@ -79,6 +86,10 @@ class AppDetailActivity : AppCompatActivity() {
         liveMonitorButton = findViewById(R.id.liveMonitorButton)
         clearLiveLogButton = findViewById(R.id.clearLiveLogButton)
         liveConnectionsContainer = findViewById(R.id.liveConnectionsContainer)
+        behaviorSummary = findViewById(R.id.behaviorSummary)
+        behaviorHighlightsContainer = findViewById(R.id.behaviorHighlightsContainer)
+        behaviorTimelineContainer = findViewById(R.id.behaviorTimelineContainer)
+        clearBehaviorHistoryButton = findViewById(R.id.clearBehaviorHistoryButton)
         destinationSummary = findViewById(R.id.destinationSummary)
         clearDestinationHistoryButton = findViewById(R.id.clearDestinationHistoryButton)
         destinationHistoryContainer = findViewById(R.id.destinationHistoryContainer)
@@ -91,9 +102,21 @@ class AppDetailActivity : AppCompatActivity() {
             ConnectionLogStore.clear(this, packageNameValue)
             renderLiveMonitor()
         }
+        clearBehaviorHistoryButton.setOnClickListener {
+            TrafficTimelineStore.clear(this, packageNameValue)
+            MonitorSessionStore.clear(this, packageNameValue)
+            val active = LiveMonitorStore.active(this)
+            if (active?.packageName == packageNameValue && active.mode == LiveMonitorStore.Mode.PASS_THROUGH) {
+                MonitorSessionStore.start(this, packageNameValue)
+            }
+            lastBehaviorRenderMillis = 0L
+            renderBehaviorReport()
+        }
         clearDestinationHistoryButton.setOnClickListener {
             DestinationHistoryStore.clear(this, packageNameValue)
             renderDestinationIntelligence()
+            lastBehaviorRenderMillis = 0L
+            renderBehaviorReport()
         }
 
         populateAppInfo()
@@ -302,6 +325,7 @@ class AppDetailActivity : AppCompatActivity() {
             .setAction(FirewallVpnService.ACTION_START_PASSTHROUGH_MONITOR)
             .putExtra(FirewallVpnService.EXTRA_PACKAGE_NAME, packageNameValue)
         ContextCompat.startForegroundService(applicationContext, intent)
+        lastBehaviorRenderMillis = 0L
         renderLiveMonitor()
     }
 
@@ -309,6 +333,7 @@ class AppDetailActivity : AppCompatActivity() {
         val intent = Intent(applicationContext, FirewallVpnService::class.java)
             .setAction(FirewallVpnService.ACTION_STOP_MONITOR)
         ContextCompat.startForegroundService(applicationContext, intent)
+        lastBehaviorRenderMillis = 0L
         renderLiveMonitor()
     }
 
@@ -371,8 +396,160 @@ class AppDetailActivity : AppCompatActivity() {
             }
         }
 
+        val now = System.currentTimeMillis()
+        if (now - lastBehaviorRenderMillis >= BEHAVIOR_REFRESH_MILLIS) {
+            renderBehaviorReport(now)
+            lastBehaviorRenderMillis = now
+        }
         renderDestinationIntelligence()
         renderLiveConnections()
+    }
+
+    private fun renderBehaviorReport(now: Long = System.currentTimeMillis()) {
+        if (!::behaviorSummary.isInitialized) return
+        val report = TrafficTimelineStore.report(this, packageNameValue, now)
+        val destinations = DestinationHistoryStore.snapshot(this, packageNameValue)
+        val newDestinations = destinations
+            .filter { it.firstSeenMillis in report.currentStartMillis until report.currentEndMillis }
+            .sortedByDescending { it.firstSeenMillis }
+
+        behaviorHighlightsContainer.removeAllViews()
+        behaviorTimelineContainer.removeAllViews()
+
+        val current = report.current
+        val classifiedUpload = current.foregroundSentBytes + current.backgroundSentBytes
+        val backgroundPercent = if (classifiedUpload > 0L) {
+            (current.backgroundSentBytes.toDouble() * 100.0 / classifiedUpload.toDouble()).roundToInt()
+        } else {
+            null
+        }
+
+        val backgroundSummary = when {
+            backgroundPercent != null ->
+                "Background upload: $backgroundPercent% of classified upload · ${formatBytes(current.backgroundSentBytes)}"
+            current.unknownSentBytes > 0L ->
+                "Background upload: state unavailable for ${formatBytes(current.unknownSentBytes)}"
+            else -> "Background upload: none observed"
+        }
+
+        val comparisonSummary = if (report.comparisonReady) {
+            val currentRate = report.currentUploadBytesPerObservedHour() ?: 0.0
+            val previousRate = report.previousUploadBytesPerObservedHour() ?: 0.0
+            "Upload rate: ${formatRate(currentRate)} now · ${formatRate(previousRate)} previous observed period"
+        } else {
+            "Comparison baseline: needs at least 5 min monitoring in both periods · previous monitored ${formatDuration(report.previousObservedMillis)}"
+        }
+
+        behaviorSummary.text = if (current.totalBytes == 0L && report.currentObservedMillis == 0L) {
+            getString(R.string.no_behavior_data)
+        } else {
+            "Recent 24 h · monitored ${formatDuration(report.currentObservedMillis)}\n" +
+                "↑ ${formatBytes(current.sentBytes)}   ↓ ${formatBytes(current.receivedBytes)} · " +
+                "${current.destinationCount} destinations\n" +
+                "$backgroundSummary\n$comparisonSummary"
+        }
+
+        var highlightCount = 0
+        if (newDestinations.isNotEmpty()) {
+            addBehaviorLine(
+                behaviorHighlightsContainer,
+                "New destinations · ${newDestinations.size} in recent 24 h"
+            )
+            highlightCount++
+            newDestinations.take(3).forEach { destination ->
+                val seen = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                    .format(Date(destination.firstSeenMillis))
+                addBehaviorLine(
+                    behaviorHighlightsContainer,
+                    "NEW · $seen · ${displayDestination(destination.domain, destination.destinationIp, destination.destinationPort)}"
+                )
+                highlightCount++
+            }
+        }
+
+        report.topUploads.firstOrNull()?.let { top ->
+            addBehaviorLine(
+                behaviorHighlightsContainer,
+                "Largest upload target · ${displayDestination(top.domain, top.destinationIp, top.destinationPort)}\n" +
+                    "↑ ${formatBytes(top.sentBytes)}   ↓ ${formatBytes(top.receivedBytes)} · ${top.protocol}"
+            )
+            highlightCount++
+        }
+
+        report.topBackgroundUploads.firstOrNull()?.let { top ->
+            addBehaviorLine(
+                behaviorHighlightsContainer,
+                "Largest background upload · ${displayDestination(top.domain, top.destinationIp, top.destinationPort)}\n" +
+                    "Background ↑ ${formatBytes(top.backgroundSentBytes)}"
+            )
+            highlightCount++
+        }
+
+        if (backgroundPercent != null && current.backgroundSentBytes > 0L) {
+            val unknownSuffix = if (current.unknownSentBytes > 0L) {
+                " · ${formatBytes(current.unknownSentBytes)} unclassified"
+            } else {
+                ""
+            }
+            addBehaviorLine(
+                behaviorHighlightsContainer,
+                "Background share · $backgroundPercent% of classified upload$unknownSuffix"
+            )
+            highlightCount++
+        }
+
+        if (report.comparisonReady) {
+            val currentRate = report.currentUploadBytesPerObservedHour() ?: 0.0
+            val previousRate = report.previousUploadBytesPerObservedHour() ?: 0.0
+            when {
+                previousRate <= 1.0 && currentRate >= SPIKE_RATE_FLOOR_BYTES_PER_HOUR -> {
+                    addBehaviorLine(
+                        behaviorHighlightsContainer,
+                        "Upload-rate change · upload observed now, none in the previous observed period"
+                    )
+                    highlightCount++
+                }
+                previousRate > 0.0 -> {
+                    val ratio = currentRate / previousRate
+                    if (ratio >= 2.0 && currentRate - previousRate >= SPIKE_RATE_FLOOR_BYTES_PER_HOUR) {
+                        addBehaviorLine(
+                            behaviorHighlightsContainer,
+                            "Higher upload rate · ${formatRatio(ratio)}× the previous observed period"
+                        )
+                        highlightCount++
+                    } else if (ratio <= 0.5 && previousRate - currentRate >= SPIKE_RATE_FLOOR_BYTES_PER_HOUR) {
+                        addBehaviorLine(
+                            behaviorHighlightsContainer,
+                            "Lower upload rate · ${formatRatio(ratio)}× the previous observed period"
+                        )
+                        highlightCount++
+                    }
+                }
+            }
+        }
+
+        if (highlightCount == 0) {
+            addBehaviorLine(behaviorHighlightsContainer, getString(R.string.no_behavior_highlights))
+        }
+
+        if (report.recentHours.isEmpty()) {
+            addBehaviorLine(behaviorTimelineContainer, getString(R.string.no_behavior_timeline))
+        } else {
+            report.recentHours.forEach { hour ->
+                val time = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                    .format(Date(hour.hourStartMillis))
+                addBehaviorLine(
+                    behaviorTimelineContainer,
+                    "$time · ${hour.destinationCount} destinations\n" +
+                        "↑ ${formatBytes(hour.sentBytes)}   ↓ ${formatBytes(hour.receivedBytes)}" +
+                        if (hour.backgroundSentBytes > 0L) {
+                            " · background ↑ ${formatBytes(hour.backgroundSentBytes)}"
+                        } else {
+                            ""
+                        }
+                )
+            }
+        }
     }
 
     private fun renderDestinationIntelligence() {
@@ -458,6 +635,11 @@ class AppDetailActivity : AppCompatActivity() {
         "$ip:$port"
     }
 
+    private fun displayDestination(domain: String?, ip: String, port: Int): String {
+        val endpoint = formatEndpoint(ip, port)
+        return if (domain.isNullOrBlank()) endpoint else "$domain · $endpoint"
+    }
+
     private fun appLabel(packageName: String): String = try {
         val info = packageManager.getApplicationInfo(packageName, 0)
         packageManager.getApplicationLabel(info).toString()
@@ -483,6 +665,15 @@ class AppDetailActivity : AppCompatActivity() {
         liveConnectionsContainer.addView(view)
     }
 
+    private fun addBehaviorLine(container: LinearLayout, text: String) {
+        val view = TextView(this)
+        view.text = text
+        view.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+        val vertical = (8 * resources.displayMetrics.density).toInt()
+        view.setPadding(0, vertical, 0, vertical)
+        container.addView(view)
+    }
+
     private fun formatTraffic(usage: NetworkUsageReader.TrafficUsage?): String {
         if (usage == null) return "Unavailable"
         return "↓ ${formatBytes(usage.receivedBytes)}   ↑ ${formatBytes(usage.sentBytes)}"
@@ -499,6 +690,21 @@ class AppDetailActivity : AppCompatActivity() {
         return if (index == 0) "${value.toLong()} ${units[index]}" else "%.1f %s".format(value, units[index])
     }
 
+    private fun formatRate(bytesPerHour: Double): String =
+        "${formatBytes(bytesPerHour.coerceAtLeast(0.0).toLong())}/h"
+
+    private fun formatRatio(ratio: Double): String =
+        String.format(Locale.US, "%.1f", ratio)
+
+    private fun formatDuration(millis: Long): String {
+        if (millis <= 0L) return "0 min"
+        val totalMinutes = (millis + 30_000L) / 60_000L
+        if (totalMinutes < 60L) return "$totalMinutes min"
+        val hours = totalMinutes / 60L
+        val minutes = totalMinutes % 60L
+        return if (minutes == 0L) "$hours h" else "$hours h $minutes min"
+    }
+
     override fun onDestroy() {
         liveHandler.removeCallbacks(liveTicker)
         worker.shutdownNow()
@@ -510,6 +716,8 @@ class AppDetailActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PACKAGE_NAME = "package_name"
         private const val DAY = 24L * 60L * 60L * 1000L
+        private const val BEHAVIOR_REFRESH_MILLIS = 5000L
+        private const val SPIKE_RATE_FLOOR_BYTES_PER_HOUR = 256L * 1024L
         private const val MAX_VISIBLE_CONNECTIONS = 80
         private const val MAX_VISIBLE_DESTINATIONS = 80
     }
