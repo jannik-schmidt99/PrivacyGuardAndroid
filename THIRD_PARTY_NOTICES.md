@@ -2,10 +2,10 @@
 
 ## HEV SOCKS5 TUNNEL
 
-Privacy Guard 0.4.0 uses **HEV SOCKS5 TUNNEL** (`heiher/hev-socks5-tunnel`) as its user-space TUN-to-SOCKS forwarding engine.
+Privacy Guard uses **HEV SOCKS5 TUNNEL** (`heiher/hev-socks5-tunnel`) as its user-space TUN-to-SOCKS forwarding engine.
 
-Pinned version: **2.15.0**  
-Pinned commit: `00c7eb9ad7ca381b0f1fee880abc1077fe9b93be`
+Pinned version: **2.17.0**  
+Pinned commit: `d1178b52fccd8659201e1e3f83030f298c998865`
 
 Copyright (c) 2022 hev
 
