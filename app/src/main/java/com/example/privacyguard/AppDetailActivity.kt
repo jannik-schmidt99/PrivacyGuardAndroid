@@ -298,7 +298,6 @@ class AppDetailActivity : AppCompatActivity() {
             renderLiveMonitor()
             return
         }
-        ConnectionLogStore.clear(this, packageNameValue)
         val intent = Intent(applicationContext, FirewallVpnService::class.java)
             .setAction(FirewallVpnService.ACTION_START_PASSTHROUGH_MONITOR)
             .putExtra(FirewallVpnService.EXTRA_PACKAGE_NAME, packageNameValue)
@@ -356,6 +355,19 @@ class AppDetailActivity : AppCompatActivity() {
                 liveMonitorButton.text = getString(R.string.start_capture)
                 liveMonitorButton.visibility = View.VISIBLE
                 liveMonitorButton.isEnabled = true
+            }
+        }
+
+        val diagnostics = RelayDiagnosticsStore.snapshot(packageNameValue)
+        if (diagnostics != null &&
+            (active?.packageName == packageNameValue || !diagnostics.lastError.isNullOrBlank())
+        ) {
+            liveMonitorStatus.append(
+                "\nRelay: TCP ${diagnostics.tcpConnected} connected / ${diagnostics.tcpFailed} failed" +
+                    " · UDP ${diagnostics.udpSent} sent / ${diagnostics.udpReceived} received"
+            )
+            if (!diagnostics.lastError.isNullOrBlank()) {
+                liveMonitorStatus.append("\nLast relay error: ${diagnostics.lastError}")
             }
         }
 
