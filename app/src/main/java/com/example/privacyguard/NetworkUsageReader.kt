@@ -32,8 +32,11 @@ object NetworkUsageReader {
     }
 
     fun readWifi24h(context: Context, uid: Int): Pair<Long, Long>? {
-        val usage = readForPeriod(context, uid, 24L * 60L * 60L * 1000L) ?: return null
-        val wifi = usage.wifi ?: return null
+        if (!hasUsageAccess(context)) return null
+        val manager = context.getSystemService(Context.NETWORK_STATS_SERVICE) as NetworkStatsManager
+        val end = System.currentTimeMillis()
+        val start = end - 24L * 60L * 60L * 1000L
+        val wifi = readNetwork(manager, ConnectivityManager.TYPE_WIFI, uid, start, end) ?: return null
         return wifi.receivedBytes to wifi.sentBytes
     }
 
