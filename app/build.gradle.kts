@@ -10,8 +10,29 @@ android {
         applicationId = "com.example.privacyguard"
         minSdk = 28
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.1.3"
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystorePath = System.getenv("PRIVACYGUARD_KEYSTORE_PATH")
+            if (!keystorePath.isNullOrBlank()) {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("PRIVACYGUARD_STORE_PASSWORD")
+                keyAlias = System.getenv("PRIVACYGUARD_KEY_ALIAS")
+                keyPassword = System.getenv("PRIVACYGUARD_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            if (!System.getenv("PRIVACYGUARD_KEYSTORE_PATH").isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 }
 
