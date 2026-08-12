@@ -14,6 +14,10 @@
         android:theme="@style/Theme.PrivacyGuard">
 
         <activity
+            android:name=".AppDetailActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
