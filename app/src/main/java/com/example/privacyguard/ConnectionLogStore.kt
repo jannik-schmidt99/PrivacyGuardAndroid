@@ -11,11 +11,15 @@ object ConnectionLogStore {
         val sourcePort: Int,
         val destinationIp: String,
         val destinationPort: Int,
+        val domain: String?,
         val firstSeenMillis: Long,
         val lastSeenMillis: Long,
         val sentBytes: Long,
         val receivedBytes: Long,
-        val packetCount: Long
+        val packetCount: Long,
+        val foregroundEvents: Long,
+        val backgroundEvents: Long,
+        val unknownStateEvents: Long
     ) {
         val capturedBytes: Long get() = sentBytes + receivedBytes
     }
@@ -26,11 +30,15 @@ object ConnectionLogStore {
         val sourcePort: Int,
         val destinationIp: String,
         val destinationPort: Int,
+        var domain: String?,
         var firstSeenMillis: Long,
         var lastSeenMillis: Long,
         var sentBytes: Long,
         var receivedBytes: Long,
-        var packetCount: Long
+        var packetCount: Long,
+        var foregroundEvents: Long,
+        var backgroundEvents: Long,
+        var unknownStateEvents: Long
     )
 
     private const val PREFS = "connection_log_prefs"
@@ -78,6 +86,8 @@ object ConnectionLogStore {
     ) {
         ensureLoaded(context)
         val now = System.currentTimeMillis()
+        val domain = DnsObservationStore.lookup(context, packageName, destinationIp)
+        val foreground = AppVisibilityTracker.isLikelyForeground(context, packageName)
         val key = listOf(
             packageName,
             protocol,
@@ -86,6 +96,9 @@ object ConnectionLogStore {
             destinationPort.toString()
         ).joinToString("|")
 
+        val safeSent = sentBytes.coerceAtLeast(0L)
+        val safeReceived = receivedBytes.coerceAtLeast(0L)
+        val safePackets = packetDelta.coerceAtLeast(0L)
         val existing = records[key]
         if (existing == null) {
             records[key] = MutableRecord(
@@ -94,19 +107,41 @@ object ConnectionLogStore {
                 sourcePort = sourcePort,
                 destinationIp = destinationIp,
                 destinationPort = destinationPort,
+                domain = domain,
                 firstSeenMillis = now,
                 lastSeenMillis = now,
-                sentBytes = sentBytes.coerceAtLeast(0L),
-                receivedBytes = receivedBytes.coerceAtLeast(0L),
-                packetCount = packetDelta.coerceAtLeast(0L)
+                sentBytes = safeSent,
+                receivedBytes = safeReceived,
+                packetCount = safePackets,
+                foregroundEvents = if (foreground == true) safePackets else 0L,
+                backgroundEvents = if (foreground == false) safePackets else 0L,
+                unknownStateEvents = if (foreground == null) safePackets else 0L
             )
             trimOldest()
         } else {
             existing.lastSeenMillis = now
-            existing.sentBytes += sentBytes.coerceAtLeast(0L)
-            existing.receivedBytes += receivedBytes.coerceAtLeast(0L)
-            existing.packetCount += packetDelta.coerceAtLeast(0L)
+            if (!domain.isNullOrBlank()) existing.domain = domain
+            existing.sentBytes += safeSent
+            existing.receivedBytes += safeReceived
+            existing.packetCount += safePackets
+            when (foreground) {
+                true -> existing.foregroundEvents += safePackets
+                false -> existing.backgroundEvents += safePackets
+                null -> existing.unknownStateEvents += safePackets
+            }
         }
+
+        DestinationHistoryStore.record(
+            context = context,
+            packageName = packageName,
+            protocol = protocol,
+            destinationIp = destinationIp,
+            destinationPort = destinationPort,
+            domain = domain,
+            sentBytes = safeSent,
+            receivedBytes = safeReceived,
+            foreground = foreground
+        )
 
         persist(context, force = now - lastPersistMillis >= 1000L)
     }
@@ -125,11 +160,15 @@ object ConnectionLogStore {
                     sourcePort = it.sourcePort,
                     destinationIp = it.destinationIp,
                     destinationPort = it.destinationPort,
+                    domain = it.domain,
                     firstSeenMillis = it.firstSeenMillis,
                     lastSeenMillis = it.lastSeenMillis,
                     sentBytes = it.sentBytes,
                     receivedBytes = it.receivedBytes,
-                    packetCount = it.packetCount
+                    packetCount = it.packetCount,
+                    foregroundEvents = it.foregroundEvents,
+                    backgroundEvents = it.backgroundEvents,
+                    unknownStateEvents = it.unknownStateEvents
                 )
             }
             .toList()
@@ -152,17 +191,25 @@ object ConnectionLogStore {
             for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
                 val legacyBytes = item.optLong("bytes", 0L)
+                val packetCount = item.optLong("packets", 0L)
                 val record = MutableRecord(
                     packageName = item.getString("package"),
                     protocol = item.getString("protocol"),
                     sourcePort = item.optInt("sourcePort", 0),
                     destinationIp = item.getString("destinationIp"),
                     destinationPort = item.getInt("destinationPort"),
+                    domain = item.optString("domain").takeIf { it.isNotBlank() },
                     firstSeenMillis = item.getLong("firstSeen"),
                     lastSeenMillis = item.getLong("lastSeen"),
                     sentBytes = if (item.has("sentBytes")) item.optLong("sentBytes", 0L) else legacyBytes,
                     receivedBytes = item.optLong("receivedBytes", 0L),
-                    packetCount = item.optLong("packets", 0L)
+                    packetCount = packetCount,
+                    foregroundEvents = item.optLong("foregroundEvents", 0L),
+                    backgroundEvents = item.optLong("backgroundEvents", 0L),
+                    unknownStateEvents = item.optLong(
+                        "unknownStateEvents",
+                        if (!item.has("foregroundEvents") && !item.has("backgroundEvents")) packetCount else 0L
+                    )
                 )
                 val key = listOf(
                     record.packageName,
@@ -190,12 +237,16 @@ object ConnectionLogStore {
                     .put("sourcePort", record.sourcePort)
                     .put("destinationIp", record.destinationIp)
                     .put("destinationPort", record.destinationPort)
+                    .put("domain", record.domain ?: "")
                     .put("firstSeen", record.firstSeenMillis)
                     .put("lastSeen", record.lastSeenMillis)
                     .put("sentBytes", record.sentBytes)
                     .put("receivedBytes", record.receivedBytes)
                     .put("bytes", record.sentBytes + record.receivedBytes)
                     .put("packets", record.packetCount)
+                    .put("foregroundEvents", record.foregroundEvents)
+                    .put("backgroundEvents", record.backgroundEvents)
+                    .put("unknownStateEvents", record.unknownStateEvents)
             )
         }
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
