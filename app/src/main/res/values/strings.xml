@@ -50,6 +50,15 @@
     <string name="captured_connections">Observed connections</string>
     <string name="no_live_connections">No TCP/UDP connections observed yet.</string>
 
+    <string name="privacy_behavior_report">Privacy behavior report</string>
+    <string name="privacy_behavior_report_explanation">Summarizes successful pass-through traffic in hourly buckets. Compares observed upload rate only when both periods contain enough monitoring time, so longer monitoring alone is not treated as a traffic spike. Timeline collection starts with Privacy Guard 0.6.0.</string>
+    <string name="notable_activity">Notable activity</string>
+    <string name="behavior_timeline">Recent activity timeline</string>
+    <string name="clear_behavior_history">Clear behavior timeline</string>
+    <string name="no_behavior_data">No successful pass-through traffic has been stored in the behavior timeline yet.</string>
+    <string name="no_behavior_highlights">No notable behavior can be calculated yet. Keep live monitoring active while using the app.</string>
+    <string name="no_behavior_timeline">No hourly traffic buckets stored yet.</string>
+
     <string name="destination_intelligence">Destination intelligence</string>
     <string name="destination_intelligence_explanation">Builds a persistent server history from observed traffic. Domains are best-effort and only shown when Privacy Guard actually observes a matching classic DNS response. Encrypted DNS may leave the domain unknown.</string>
     <string name="destination_summary">%1$d destinations · %2$d new in 24 h · %3$d with domain · %4$d with background activity</string>
