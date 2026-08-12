@@ -73,6 +73,15 @@ jobs:
           grep -F 'materializeTcpSocket(remote)' app/src/main/java/com/example/privacyguard/LocalSocks5Proxy.kt
           grep -F 'val ignored = socket.reuseAddress' app/src/main/java/com/example/privacyguard/LocalSocks5Proxy.kt
 
+      - name: Verify safe area handling
+        shell: bash
+        run: |
+          grep -F 'WindowCompat.enableEdgeToEdge(window)' app/src/main/java/com/example/privacyguard/SafeArea.kt
+          grep -F 'WindowInsetsCompat.Type.systemBars()' app/src/main/java/com/example/privacyguard/SafeArea.kt
+          grep -F 'WindowInsetsCompat.Type.displayCutout()' app/src/main/java/com/example/privacyguard/SafeArea.kt
+          grep -F 'applySafeAreaInsets()' app/src/main/java/com/example/privacyguard/MainActivity.kt
+          grep -F 'android:fitsSystemWindows="true"' app/src/main/res/layout/activity_app_detail.xml
+
       - name: Prepare fixed signing key
         if: env.SIGNING_KEY_BASE64 != ''
         shell: bash
@@ -87,10 +96,10 @@ jobs:
           mkdir -p output
           if [ -n "${PRIVACYGUARD_KEYSTORE_PATH:-}" ]; then
             gradle --no-daemon :app:assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.5.3-signed.apk
+            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.5.4-signed.apk
           else
             gradle --no-daemon :app:assembleDebug
-            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.5.3-debug.apk
+            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.5.4-debug.apk
           fi
 
       - name: Upload APK
