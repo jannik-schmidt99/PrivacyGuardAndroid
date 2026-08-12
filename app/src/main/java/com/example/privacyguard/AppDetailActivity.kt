@@ -38,6 +38,9 @@ class AppDetailActivity : AppCompatActivity() {
     private lateinit var liveMonitorButton: Button
     private lateinit var clearLiveLogButton: Button
     private lateinit var liveConnectionsContainer: LinearLayout
+    private lateinit var destinationSummary: TextView
+    private lateinit var clearDestinationHistoryButton: Button
+    private lateinit var destinationHistoryContainer: LinearLayout
     private var selectedPeriodMillis = DAY
 
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -76,6 +79,9 @@ class AppDetailActivity : AppCompatActivity() {
         liveMonitorButton = findViewById(R.id.liveMonitorButton)
         clearLiveLogButton = findViewById(R.id.clearLiveLogButton)
         liveConnectionsContainer = findViewById(R.id.liveConnectionsContainer)
+        destinationSummary = findViewById(R.id.destinationSummary)
+        clearDestinationHistoryButton = findViewById(R.id.clearDestinationHistoryButton)
+        destinationHistoryContainer = findViewById(R.id.destinationHistoryContainer)
 
         usageAccessButton.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
@@ -84,6 +90,10 @@ class AppDetailActivity : AppCompatActivity() {
         clearLiveLogButton.setOnClickListener {
             ConnectionLogStore.clear(this, packageNameValue)
             renderLiveMonitor()
+        }
+        clearDestinationHistoryButton.setOnClickListener {
+            DestinationHistoryStore.clear(this, packageNameValue)
+            renderDestinationIntelligence()
         }
 
         populateAppInfo()
@@ -324,10 +334,7 @@ class AppDetailActivity : AppCompatActivity() {
                 liveMonitorButton.isEnabled = true
             }
             active != null -> {
-                liveMonitorStatus.text = getString(
-                    R.string.live_monitor_other_app,
-                    appLabel(active.packageName)
-                )
+                liveMonitorStatus.text = getString(R.string.live_monitor_other_app, appLabel(active.packageName))
                 liveMonitorButton.text = getString(R.string.start_capture)
                 liveMonitorButton.visibility = View.VISIBLE
                 liveMonitorButton.isEnabled = false
@@ -339,10 +346,7 @@ class AppDetailActivity : AppCompatActivity() {
                 liveMonitorButton.isEnabled = false
             }
             blockedPackages.isNotEmpty() -> {
-                liveMonitorStatus.text = getString(
-                    R.string.live_monitor_requires_no_blocks,
-                    blockedPackages.size
-                )
+                liveMonitorStatus.text = getString(R.string.live_monitor_requires_no_blocks, blockedPackages.size)
                 liveMonitorButton.text = getString(R.string.start_capture)
                 liveMonitorButton.visibility = View.VISIBLE
                 liveMonitorButton.isEnabled = false
@@ -355,6 +359,58 @@ class AppDetailActivity : AppCompatActivity() {
             }
         }
 
+        renderDestinationIntelligence()
+        renderLiveConnections()
+    }
+
+    private fun renderDestinationIntelligence() {
+        if (!::destinationSummary.isInitialized) return
+        val destinations = DestinationHistoryStore.snapshot(this, packageNameValue)
+        val now = System.currentTimeMillis()
+        val newCount = destinations.count { now - it.firstSeenMillis <= DAY }
+        val domainCount = destinations.count { !it.domain.isNullOrBlank() }
+        val backgroundCount = destinations.count { it.backgroundEvents > 0L }
+        destinationSummary.text = getString(
+            R.string.destination_summary,
+            destinations.size,
+            newCount,
+            domainCount,
+            backgroundCount
+        )
+
+        destinationHistoryContainer.removeAllViews()
+        if (destinations.isEmpty()) {
+            addDestinationLine(getString(R.string.no_destination_history))
+            return
+        }
+
+        destinations.take(MAX_VISIBLE_DESTINATIONS).forEach { destination ->
+            val first = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                .format(Date(destination.firstSeenMillis))
+            val last = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                .format(Date(destination.lastSeenMillis))
+            val domain = destination.domain ?: getString(R.string.domain_unknown)
+            val endpoint = formatEndpoint(destination.destinationIp, destination.destinationPort)
+            val state = stateLabel(
+                destination.foregroundEvents,
+                destination.backgroundEvents,
+                destination.unknownStateEvents
+            )
+            val newPrefix = if (now - destination.firstSeenMillis <= DAY) {
+                "${getString(R.string.new_destination)} · "
+            } else {
+                ""
+            }
+
+            addDestinationLine(
+                "$newPrefix${destination.protocol}\n$domain\n$endpoint\n" +
+                    "First seen: $first · Last seen: $last\n" +
+                    "↑ ${formatBytes(destination.sentBytes)}   ↓ ${formatBytes(destination.receivedBytes)}\n$state"
+            )
+        }
+    }
+
+    private fun renderLiveConnections() {
         val records = ConnectionLogStore.snapshot(this, packageNameValue)
         liveConnectionsContainer.removeAllViews()
         if (records.isEmpty()) {
@@ -365,16 +421,29 @@ class AppDetailActivity : AppCompatActivity() {
         records.take(MAX_VISIBLE_CONNECTIONS).forEach { record ->
             val first = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(record.firstSeenMillis))
             val last = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(record.lastSeenMillis))
-            val endpoint = if (record.destinationIp.contains(':')) {
-                "[${record.destinationIp}]:${record.destinationPort}"
-            } else {
-                "${record.destinationIp}:${record.destinationPort}"
-            }
+            val endpoint = formatEndpoint(record.destinationIp, record.destinationPort)
             val timing = if (first == last) first else "$first → $last"
+            val domain = record.domain ?: getString(R.string.domain_unknown)
+            val state = stateLabel(record.foregroundEvents, record.backgroundEvents, record.unknownStateEvents)
             addConnectionLine(
-                "$timing   ${record.protocol}\n$endpoint\n↑ ${formatBytes(record.sentBytes)}   ↓ ${formatBytes(record.receivedBytes)} · ${record.packetCount} relay events"
+                "$timing   ${record.protocol}\n$domain\n$endpoint\n" +
+                    "↑ ${formatBytes(record.sentBytes)}   ↓ ${formatBytes(record.receivedBytes)} · " +
+                    "${record.packetCount} relay events\n$state"
             )
         }
+    }
+
+    private fun stateLabel(foregroundEvents: Long, backgroundEvents: Long, unknownEvents: Long): String = when {
+        backgroundEvents > 0L -> getString(R.string.background_observed)
+        foregroundEvents > 0L -> getString(R.string.foreground_observed)
+        unknownEvents > 0L -> getString(R.string.app_state_unknown)
+        else -> getString(R.string.app_state_unknown)
+    }
+
+    private fun formatEndpoint(ip: String, port: Int): String = if (ip.contains(':')) {
+        "[$ip]:$port"
+    } else {
+        "$ip:$port"
     }
 
     private fun appLabel(packageName: String): String = try {
@@ -382,6 +451,15 @@ class AppDetailActivity : AppCompatActivity() {
         packageManager.getApplicationLabel(info).toString()
     } catch (_: Exception) {
         packageName
+    }
+
+    private fun addDestinationLine(text: String) {
+        val view = TextView(this)
+        view.text = text
+        view.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+        val vertical = (10 * resources.displayMetrics.density).toInt()
+        view.setPadding(0, vertical, 0, vertical)
+        destinationHistoryContainer.addView(view)
     }
 
     private fun addConnectionLine(text: String) {
@@ -421,5 +499,6 @@ class AppDetailActivity : AppCompatActivity() {
         const val EXTRA_PACKAGE_NAME = "package_name"
         private const val DAY = 24L * 60L * 60L * 1000L
         private const val MAX_VISIBLE_CONNECTIONS = 80
+        private const val MAX_VISIBLE_DESTINATIONS = 80
     }
 }
