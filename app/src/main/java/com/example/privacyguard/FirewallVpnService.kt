@@ -54,10 +54,6 @@ class FirewallVpnService : VpnService() {
             return
         }
 
-        // Establish the replacement interface BEFORE closing the old file
-        // descriptor. Android deactivates the previous VPN interface when a
-        // new one is established. This forces the per-app UID routing table to
-        // be replaced as one network transition instead of stop/wait/start.
         val oldInterface = vpnInterface
         val newInterface = try {
             builder.establish()
@@ -83,11 +79,6 @@ class FirewallVpnService : VpnService() {
             return
         }
 
-        // An empty addAllowedApplication list means ALL apps would use the
-        // VPN, so we must not establish an empty firewall. Instead establish a
-        // short-lived replacement VPN that contains only Privacy Guard itself.
-        // Establishing it makes Android atomically deactivate the old per-app
-        // VPN and therefore releases previously blocked apps such as WhatsApp.
         val releaseInterface = try {
             baseBuilder()
                 .addAllowedApplication(packageName)
@@ -144,8 +135,8 @@ class FirewallVpnService : VpnService() {
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setContentTitle("Privacy Guard aktiv")
-            .setContentText("Ausgewählte Apps haben keinen Internetzugriff.")
+            .setContentTitle("Privacy Guard active")
+            .setContentText("Selected apps have no internet access.")
             .setContentIntent(openApp)
             .setOngoing(true)
             .build()
