@@ -8,6 +8,8 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
@@ -25,7 +27,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: AppAdapter
     private lateinit var status: TextView
     private val worker = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var pendingPackage: String? = null
+    private var pendingFirewallRestart: Runnable? = null
 
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val pkg = pendingPackage
@@ -78,6 +82,7 @@ class MainActivity : AppCompatActivity() {
         if (!blocked) {
             BlockedAppsStore.setBlocked(this, app.packageName, false)
             restartFirewall()
+            loadApps()
             return
         }
 
@@ -88,17 +93,33 @@ class MainActivity : AppCompatActivity() {
         } else {
             BlockedAppsStore.setBlocked(this, app.packageName, true)
             restartFirewall()
+            loadApps()
         }
     }
 
     private fun restartFirewall() {
         val blocked = BlockedAppsStore.get(this)
-        val intent = Intent(this, FirewallVpnService::class.java)
-        if (blocked.isEmpty()) {
-            stopService(intent)
-        } else {
-            ContextCompat.startForegroundService(this, intent)
+        val appContext = applicationContext
+        val intent = Intent(appContext, FirewallVpnService::class.java)
+
+        // Fully tear down the current VPN first. Re-establishing a per-app VPN
+        // immediately on the same running service can leave existing app sockets
+        // attached to the old VPN route for a while after a rule is removed.
+        pendingFirewallRestart?.let { mainHandler.removeCallbacks(it) }
+        pendingFirewallRestart = null
+        stopService(intent)
+
+        if (blocked.isEmpty()) return
+
+        val restart = Runnable {
+            ContextCompat.startForegroundService(appContext, intent)
+            pendingFirewallRestart = null
         }
+        pendingFirewallRestart = restart
+
+        // Give Android a brief window to remove the previous TUN interface and
+        // per-app VPN routing before establishing the replacement interface.
+        mainHandler.postDelayed(restart, 300L)
     }
 
     private fun loadApps() {
@@ -152,6 +173,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        pendingFirewallRestart?.let { mainHandler.removeCallbacks(it) }
+        pendingFirewallRestart = null
         worker.shutdownNow()
         super.onDestroy()
     }
