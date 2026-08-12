@@ -143,6 +143,25 @@ object ConnectionLogStore {
             foreground = foreground
         )
 
+        val liveState = LiveMonitorStore.active(context)
+        if (liveState?.mode == LiveMonitorStore.Mode.PASS_THROUGH &&
+            liveState.packageName == packageName
+        ) {
+            TrafficTimelineStore.record(
+                context = context,
+                packageName = packageName,
+                protocol = protocol,
+                destinationIp = destinationIp,
+                destinationPort = destinationPort,
+                domain = domain,
+                sentBytes = safeSent,
+                receivedBytes = safeReceived,
+                foreground = foreground,
+                relayEvents = safePackets,
+                now = now
+            )
+        }
+
         persist(context, force = now - lastPersistMillis >= 1000L)
     }
 
