@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
@@ -31,7 +32,6 @@ class FirewallVpnService : VpnService() {
                 if (!targetPackage.isNullOrBlank()) {
                     val duration = intent.getLongExtra(EXTRA_DURATION_MILLIS, DEFAULT_CAPTURE_MILLIS)
                         .coerceIn(5_000L, 120_000L)
-                    ConnectionLogStore.clear(this, targetPackage)
                     LiveMonitorStore.startDropCapture(this, targetPackage, duration)
                 }
             }
@@ -39,7 +39,7 @@ class FirewallVpnService : VpnService() {
             ACTION_START_PASSTHROUGH_MONITOR -> {
                 val targetPackage = intent.getStringExtra(EXTRA_PACKAGE_NAME)
                 if (!targetPackage.isNullOrBlank() && BlockedAppsStore.get(this).isEmpty()) {
-                    ConnectionLogStore.clear(this, targetPackage)
+                    RelayDiagnosticsStore.reset(targetPackage)
                     LiveMonitorStore.startPassThrough(this, targetPackage)
                 }
             }
@@ -132,20 +132,31 @@ class FirewallVpnService : VpnService() {
     private fun startPassThroughMonitor(monitoredPackage: String) {
         stopPassThroughDataPlane()
 
-        val builder = baseBuilder(blocking = false)
-        try {
-            builder.addAllowedApplication(monitoredPackage)
-        } catch (_: Exception) {
+        val upstreamNetwork = selectUnderlyingNetwork()
+        if (upstreamNetwork == null) {
+            RelayDiagnosticsStore.error(monitoredPackage, "No validated Wi-Fi/mobile upstream network available")
             LiveMonitorStore.stop(this)
             releaseAllAppsFromVpn()
             return
         }
-        addUnderlyingDnsServers(builder)
+
+        val builder = baseBuilder(blocking = false)
+            .setUnderlyingNetworks(arrayOf(upstreamNetwork))
+        try {
+            builder.addAllowedApplication(monitoredPackage)
+        } catch (_: Exception) {
+            RelayDiagnosticsStore.error(monitoredPackage, "Could not route monitored app into VPN")
+            LiveMonitorStore.stop(this)
+            releaseAllAppsFromVpn()
+            return
+        }
+        addUnderlyingDnsServers(builder, upstreamNetwork)
 
         val oldInterface = vpnInterface
         val newInterface = try {
             builder.establish()
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            RelayDiagnosticsStore.error(monitoredPackage, "VPN establish failed: ${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
             null
         }
 
@@ -161,10 +172,19 @@ class FirewallVpnService : VpnService() {
         } catch (_: Exception) {
         }
 
-        val proxy = LocalSocks5Proxy(this, monitoredPackage)
+        try {
+            if (!setUnderlyingNetworks(arrayOf(upstreamNetwork))) {
+                RelayDiagnosticsStore.error(monitoredPackage, "Android rejected VPN underlying-network update")
+            }
+        } catch (error: Exception) {
+            RelayDiagnosticsStore.error(monitoredPackage, "Underlying network: ${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
+        }
+
+        val proxy = LocalSocks5Proxy(this, monitoredPackage, upstreamNetwork)
         val proxyPort = try {
             proxy.start()
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            RelayDiagnosticsStore.error(monitoredPackage, "Local SOCKS start failed: ${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
             -1
         }
 
@@ -193,7 +213,8 @@ class FirewallVpnService : VpnService() {
         val started = try {
             config.writeText(configText)
             HevTunnel.TProxyStartService(config.absolutePath, newInterface.fd)
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            RelayDiagnosticsStore.error(monitoredPackage, "HEV start failed: ${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
             false
         }
 
@@ -214,19 +235,39 @@ class FirewallVpnService : VpnService() {
         startInForeground()
     }
 
-    private fun addUnderlyingDnsServers(builder: Builder) {
+    private fun selectUnderlyingNetwork(): Network? {
+        return try {
+            val connectivity = getSystemService(ConnectivityManager::class.java)
+            connectivity.allNetworks
+                .mapNotNull { network ->
+                    val caps = connectivity.getNetworkCapabilities(network) ?: return@mapNotNull null
+                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) ||
+                        !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    ) {
+                        return@mapNotNull null
+                    }
+                    network to caps
+                }
+                .maxByOrNull { (_, caps) ->
+                    var score = 0
+                    if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) score += 100
+                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) score += 20
+                    if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) score += 10
+                    score
+                }
+                ?.first
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun addUnderlyingDnsServers(builder: Builder, upstreamNetwork: Network) {
         try {
             val connectivity = getSystemService(ConnectivityManager::class.java)
-            val network = connectivity.allNetworks.firstOrNull { candidate ->
-                val caps = connectivity.getNetworkCapabilities(candidate) ?: return@firstOrNull false
-                !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
-                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            }
-            val dnsServers = network?.let { connectivity.getLinkProperties(it)?.dnsServers }.orEmpty()
+            val dnsServers = connectivity.getLinkProperties(upstreamNetwork)?.dnsServers.orEmpty()
             dnsServers.distinct().forEach { builder.addDnsServer(it) }
             if (dnsServers.isEmpty()) {
                 builder.addDnsServer("1.1.1.1")
-                builder.addDnsServer("2606:4700:4700::1111")
             }
         } catch (_: Exception) {
             try {
