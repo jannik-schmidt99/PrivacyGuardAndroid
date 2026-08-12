@@ -10,13 +10,13 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/app_name"
-        android:textAppearance="?attr/textAppearanceHeadlineMedium"
+        android:textAppearance="?attr/textAppearanceHeadlineSmall"
         android:textStyle="bold" />
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="8dp"
         android:text="@string/app_description"
         android:textAppearance="?attr/textAppearanceBodyMedium" />
 
@@ -24,7 +24,7 @@
         android:id="@+id/usageAccessButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="14dp"
         android:backgroundTint="?attr/colorPrimary"
         android:text="@string/usage_access_button"
         android:textColor="?attr/colorOnPrimary" />
@@ -33,7 +33,7 @@
         android:id="@+id/searchInput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="10dp"
         android:hint="@string/search_hint"
         android:inputType="text"
         android:singleLine="true" />
