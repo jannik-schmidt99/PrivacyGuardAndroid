@@ -34,8 +34,20 @@ object LiveMonitorStore {
     }
 
     private fun save(context: Context, packageName: String, mode: Mode, untilMillis: Long) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val previousPackage = prefs.getString(KEY_PACKAGE, null)
+        val previousMode = parseMode(prefs.getString(KEY_MODE, null))
+
+        if (previousPackage != null && previousMode == Mode.PASS_THROUGH &&
+            (mode != Mode.PASS_THROUGH || previousPackage != packageName)
+        ) {
+            MonitorSessionStore.stop(context, previousPackage)
+        }
+        if (mode == Mode.PASS_THROUGH) {
+            MonitorSessionStore.start(context, packageName)
+        }
+
+        prefs.edit()
             .putString(KEY_PACKAGE, packageName)
             .putString(KEY_MODE, mode.name)
             .putLong(KEY_UNTIL, untilMillis)
@@ -43,25 +55,30 @@ object LiveMonitorStore {
     }
 
     fun stop(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .clear()
-            .apply()
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val packageName = prefs.getString(KEY_PACKAGE, null)
+        val mode = parseMode(prefs.getString(KEY_MODE, null))
+        if (packageName != null && mode == Mode.PASS_THROUGH) {
+            MonitorSessionStore.stop(context, packageName)
+        }
+        prefs.edit().clear().apply()
     }
 
     fun active(context: Context): State? {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val packageName = prefs.getString(KEY_PACKAGE, null) ?: return null
-        val mode = try {
-            Mode.valueOf(prefs.getString(KEY_MODE, Mode.DROP_CAPTURE.name) ?: Mode.DROP_CAPTURE.name)
-        } catch (_: Exception) {
-            Mode.DROP_CAPTURE
-        }
+        val mode = parseMode(prefs.getString(KEY_MODE, Mode.DROP_CAPTURE.name)) ?: Mode.DROP_CAPTURE
         val until = prefs.getLong(KEY_UNTIL, 0L)
         if (mode == Mode.DROP_CAPTURE && until <= System.currentTimeMillis()) {
             prefs.edit().clear().apply()
             return null
         }
         return State(packageName, mode, until)
+    }
+
+    private fun parseMode(raw: String?): Mode? = try {
+        raw?.let { Mode.valueOf(it) }
+    } catch (_: Exception) {
+        null
     }
 }
