@@ -115,8 +115,9 @@ class LocalSocks5Proxy(
         val remote = Socket()
         closeables.add(remote)
         try {
+            materializeTcpSocket(remote)
             if (!vpnService.protect(remote)) {
-                RelayDiagnosticsStore.error(monitoredPackage, "VPN protect(TCP) failed")
+                RelayDiagnosticsStore.error(monitoredPackage, "VPN protect(TCP) failed after socket materialization")
                 writeReply(clientOutput, REP_GENERAL_FAILURE, null)
                 return
             }
@@ -171,6 +172,14 @@ class LocalSocks5Proxy(
             closeables.remove(remote)
             closeQuietly(remote)
         }
+    }
+
+    private fun materializeTcpSocket(socket: Socket) {
+        // A newly constructed java.net.Socket can exist without a native FD yet.
+        // Android's Network.bindSocket(Socket) uses the same getter trick to force
+        // creation before accessing the FD. VpnService.protect(Socket) needs that FD.
+        @Suppress("UNUSED_VARIABLE")
+        val ignored = socket.reuseAddress
     }
 
     private fun handleUdpAssociate(client: Socket, controlInput: InputStream, controlOutput: OutputStream) {
