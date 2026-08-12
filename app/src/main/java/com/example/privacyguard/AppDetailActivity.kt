@@ -1,17 +1,23 @@
 package com.example.privacyguard
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.net.VpnService
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButtonToggleGroup
 import java.text.DateFormat
 import java.util.Date
@@ -19,6 +25,7 @@ import java.util.concurrent.Executors
 
 class AppDetailActivity : AppCompatActivity() {
     private val worker = Executors.newSingleThreadExecutor()
+    private val liveHandler = Handler(Looper.getMainLooper())
     private lateinit var packageNameValue: String
     private lateinit var networkStatus: TextView
     private lateinit var wifiUsage: TextView
@@ -27,7 +34,26 @@ class AppDetailActivity : AppCompatActivity() {
     private lateinit var backgroundUsage: TextView
     private lateinit var lastActivity: TextView
     private lateinit var usageAccessButton: Button
+    private lateinit var liveMonitorStatus: TextView
+    private lateinit var liveMonitorButton: Button
+    private lateinit var clearLiveLogButton: Button
+    private lateinit var liveConnectionsContainer: LinearLayout
     private var selectedPeriodMillis = DAY
+
+    private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK && ::packageNameValue.isInitialized) {
+            startLiveCaptureNow()
+        } else {
+            renderLiveMonitor()
+        }
+    }
+
+    private val liveTicker = object : Runnable {
+        override fun run() {
+            if (::packageNameValue.isInitialized) renderLiveMonitor()
+            liveHandler.postDelayed(this, 1000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -46,8 +72,18 @@ class AppDetailActivity : AppCompatActivity() {
         backgroundUsage = findViewById(R.id.backgroundUsage)
         lastActivity = findViewById(R.id.lastActivity)
         usageAccessButton = findViewById(R.id.usageAccessButtonDetail)
+        liveMonitorStatus = findViewById(R.id.liveMonitorStatus)
+        liveMonitorButton = findViewById(R.id.liveMonitorButton)
+        clearLiveLogButton = findViewById(R.id.clearLiveLogButton)
+        liveConnectionsContainer = findViewById(R.id.liveConnectionsContainer)
+
         usageAccessButton.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+        liveMonitorButton.setOnClickListener { toggleLiveCapture() }
+        clearLiveLogButton.setOnClickListener {
+            ConnectionLogStore.clear(this, packageNameValue)
+            renderLiveMonitor()
         }
 
         populateAppInfo()
@@ -56,7 +92,16 @@ class AppDetailActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::packageNameValue.isInitialized) loadNetworkUsage()
+        if (::packageNameValue.isInitialized) {
+            loadNetworkUsage()
+            liveHandler.removeCallbacks(liveTicker)
+            liveHandler.post(liveTicker)
+        }
+    }
+
+    override fun onPause() {
+        liveHandler.removeCallbacks(liveTicker)
+        super.onPause()
     }
 
     private fun populateAppInfo() {
@@ -219,6 +264,92 @@ class AppDetailActivity : AppCompatActivity() {
         lastActivity.text = getString(R.string.last_activity_none)
     }
 
+    private fun toggleLiveCapture() {
+        val active = LiveMonitorStore.active(this)
+        if (active?.packageName == packageNameValue) {
+            stopLiveCapture()
+            return
+        }
+
+        val prepareIntent = VpnService.prepare(this)
+        if (prepareIntent != null) {
+            vpnPermissionLauncher.launch(prepareIntent)
+        } else {
+            startLiveCaptureNow()
+        }
+    }
+
+    private fun startLiveCaptureNow() {
+        ConnectionLogStore.clear(this, packageNameValue)
+        val intent = Intent(applicationContext, FirewallVpnService::class.java)
+            .setAction(FirewallVpnService.ACTION_START_MONITOR)
+            .putExtra(FirewallVpnService.EXTRA_PACKAGE_NAME, packageNameValue)
+            .putExtra(FirewallVpnService.EXTRA_DURATION_MILLIS, FirewallVpnService.DEFAULT_CAPTURE_MILLIS)
+        ContextCompat.startForegroundService(applicationContext, intent)
+        renderLiveMonitor()
+    }
+
+    private fun stopLiveCapture() {
+        val intent = Intent(applicationContext, FirewallVpnService::class.java)
+            .setAction(FirewallVpnService.ACTION_STOP_MONITOR)
+        ContextCompat.startForegroundService(applicationContext, intent)
+        renderLiveMonitor()
+    }
+
+    private fun renderLiveMonitor() {
+        if (!::liveMonitorStatus.isInitialized) return
+        val active = LiveMonitorStore.active(this)
+        val blocked = BlockedAppsStore.get(this).contains(packageNameValue)
+
+        when {
+            active?.packageName == packageNameValue -> {
+                val seconds = ((active.untilMillis - System.currentTimeMillis()).coerceAtLeast(0L) + 999L) / 1000L
+                liveMonitorStatus.text = getString(R.string.live_monitor_active, seconds)
+                liveMonitorButton.text = getString(R.string.stop_capture)
+                liveMonitorButton.visibility = View.VISIBLE
+            }
+            blocked -> {
+                liveMonitorStatus.text = getString(R.string.live_monitor_blocked_app)
+                liveMonitorButton.visibility = View.GONE
+            }
+            else -> {
+                liveMonitorStatus.text = getString(R.string.live_monitor_ready)
+                liveMonitorButton.text = getString(R.string.start_capture)
+                liveMonitorButton.visibility = View.VISIBLE
+            }
+        }
+
+        val records = ConnectionLogStore.snapshot(this, packageNameValue)
+        liveConnectionsContainer.removeAllViews()
+        if (records.isEmpty()) {
+            addConnectionLine(getString(R.string.no_live_connections))
+            return
+        }
+
+        records.take(MAX_VISIBLE_CONNECTIONS).forEach { record ->
+            val first = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(record.firstSeenMillis))
+            val last = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(record.lastSeenMillis))
+            val endpoint = if (record.destinationIp.contains(':')) {
+                "[${record.destinationIp}]:${record.destinationPort}"
+            } else {
+                "${record.destinationIp}:${record.destinationPort}"
+            }
+            val timing = if (first == last) first else "$first → $last"
+            addConnectionLine(
+                "$timing   ${record.protocol}\n$endpoint\n↑ ${formatBytes(record.capturedBytes)} captured · ${record.packetCount} packets"
+            )
+        }
+    }
+
+    private fun addConnectionLine(text: String) {
+        val view = TextView(this)
+        view.text = text
+        view.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+        val vertical = (9 * resources.displayMetrics.density).toInt()
+        view.setPadding(0, vertical, 0, vertical)
+        liveConnectionsContainer.addView(view)
+    }
+
     private fun formatTraffic(usage: NetworkUsageReader.TrafficUsage?): String {
         if (usage == null) return "Unavailable"
         return "↓ ${formatBytes(usage.receivedBytes)}   ↑ ${formatBytes(usage.sentBytes)}"
@@ -236,6 +367,7 @@ class AppDetailActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        liveHandler.removeCallbacks(liveTicker)
         worker.shutdownNow()
         super.onDestroy()
     }
@@ -245,5 +377,6 @@ class AppDetailActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_PACKAGE_NAME = "package_name"
         private const val DAY = 24L * 60L * 60L * 1000L
+        private const val MAX_VISIBLE_CONNECTIONS = 80
     }
 }
