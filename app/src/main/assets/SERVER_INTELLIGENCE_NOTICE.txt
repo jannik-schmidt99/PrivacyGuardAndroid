@@ -1,0 +1,15 @@
+Privacy Guard Server Intelligence third-party notice
+
+DB-IP Lite data
+Copyright (c) DB-IP.com
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+Source: https://db-ip.com/db/lite.php
+Database release bundled by Privacy Guard 0.7.0: August 2026
+
+Privacy Guard performs IP-to-ASN and IP-to-country lookups locally on the device.
+Observed destination IP addresses are not sent to DB-IP or another online lookup service.
+
+MaxMind DB Reader for Java
+Copyright (c) MaxMind, Inc.
+License: Apache License 2.0
+Source: https://github.com/maxmind/MaxMind-DB-Reader-java
