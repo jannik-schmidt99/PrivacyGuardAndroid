@@ -22,6 +22,7 @@ object TrafficTimelineStore {
         val destinationIp: String,
         val destinationPort: Int,
         val domain: String?,
+        val firstSeenMillis: Long,
         val sentBytes: Long,
         val receivedBytes: Long,
         val backgroundSentBytes: Long,
@@ -45,6 +46,7 @@ object TrafficTimelineStore {
         val previous: WindowSummary,
         val currentObservedMillis: Long,
         val previousObservedMillis: Long,
+        val newDestinations: List<DestinationTraffic>,
         val topUploads: List<DestinationTraffic>,
         val topBackgroundUploads: List<DestinationTraffic>,
         val recentHours: List<HourSummary>
@@ -78,13 +80,16 @@ object TrafficTimelineStore {
 
     private const val PREFS = "traffic_timeline_prefs"
     private const val KEY_JSON = "buckets"
+    private const val KEY_FIRST_SEEN_JSON = "first_seen"
     private const val HOUR_MILLIS = 60L * 60L * 1000L
     private const val RETENTION_MILLIS = 7L * 24L * HOUR_MILLIS
     private const val MAX_BUCKETS = 6000
+    private const val MAX_FIRST_SEEN = 2500
     private const val PERSIST_INTERVAL_MILLIS = 5000L
     private const val MIN_COMPARE_OBSERVED_MILLIS = 5L * 60L * 1000L
 
     private val buckets = LinkedHashMap<String, MutableBucket>()
+    private val firstSeen = LinkedHashMap<String, Long>()
     private var loaded = false
     private var lastPersistMillis = 0L
 
@@ -103,6 +108,12 @@ object TrafficTimelineStore {
         now: Long = System.currentTimeMillis()
     ) {
         ensureLoaded(context)
+        val destinationKey = destinationKey(packageName, protocol, destinationIp, destinationPort)
+        if (!firstSeen.containsKey(destinationKey)) {
+            firstSeen[destinationKey] = now
+            trimFirstSeen()
+        }
+
         val hourStart = floorHour(now)
         val key = key(packageName, hourStart, protocol, destinationIp, destinationPort)
         val safeSent = sentBytes.coerceAtLeast(0L)
@@ -151,7 +162,6 @@ object TrafficTimelineStore {
     ): Report {
         ensureLoaded(context)
         prune(now)
-        // Flush the latest in-memory counters when the user opens the report.
         persist(context)
 
         val currentHour = floorHour(now)
@@ -163,6 +173,7 @@ object TrafficTimelineStore {
         val appBuckets = buckets.values.filter { it.packageName == packageName }
         val currentBuckets = appBuckets.filter { it.hourStartMillis in currentStart until currentEnd }
         val previousBuckets = appBuckets.filter { it.hourStartMillis in previousStart until previousEnd }
+        val currentDestinations = aggregateDestinations(packageName, currentBuckets)
 
         return Report(
             currentStartMillis = currentStart,
@@ -185,10 +196,13 @@ object TrafficTimelineStore {
                 previousEnd,
                 now
             ),
-            topUploads = aggregateDestinations(currentBuckets)
+            newDestinations = currentDestinations
+                .filter { it.firstSeenMillis in currentStart until currentEnd }
+                .sortedByDescending { it.firstSeenMillis },
+            topUploads = currentDestinations
                 .sortedByDescending { it.sentBytes }
                 .take(5),
-            topBackgroundUploads = aggregateDestinations(currentBuckets)
+            topBackgroundUploads = currentDestinations
                 .filter { it.backgroundSentBytes > 0L }
                 .sortedByDescending { it.backgroundSentBytes }
                 .take(5),
@@ -202,6 +216,8 @@ object TrafficTimelineStore {
     fun clear(context: Context, packageName: String) {
         ensureLoaded(context)
         buckets.entries.removeAll { it.value.packageName == packageName }
+        val prefix = "$packageName|"
+        firstSeen.entries.removeAll { it.key.startsWith(prefix) }
         persist(context)
     }
 
@@ -235,7 +251,10 @@ object TrafficTimelineStore {
         )
     }
 
-    private fun aggregateDestinations(source: List<MutableBucket>): List<DestinationTraffic> {
+    private fun aggregateDestinations(
+        packageName: String,
+        source: List<MutableBucket>
+    ): List<DestinationTraffic> {
         data class MutableDestinationTraffic(
             val protocol: String,
             val ip: String,
@@ -271,6 +290,7 @@ object TrafficTimelineStore {
                 destinationIp = it.ip,
                 destinationPort = it.port,
                 domain = it.domain,
+                firstSeenMillis = firstSeen[destinationKey(packageName, it.protocol, it.ip, it.port)] ?: 0L,
                 sentBytes = it.sent,
                 receivedBytes = it.received,
                 backgroundSentBytes = it.backgroundSent,
@@ -310,39 +330,56 @@ object TrafficTimelineStore {
     private fun ensureLoaded(context: Context) {
         if (loaded) return
         loaded = true
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_JSON, null) ?: return
-        try {
-            val array = JSONArray(raw)
-            for (index in 0 until array.length()) {
-                val item = array.getJSONObject(index)
-                val bucket = MutableBucket(
-                    packageName = item.getString("package"),
-                    hourStartMillis = item.getLong("hour"),
-                    protocol = item.getString("protocol"),
-                    destinationIp = item.getString("ip"),
-                    destinationPort = item.getInt("port"),
-                    domain = item.optString("domain").takeIf { it.isNotBlank() },
-                    sentBytes = item.optLong("sent", 0L),
-                    receivedBytes = item.optLong("received", 0L),
-                    foregroundSentBytes = item.optLong("foregroundSent", 0L),
-                    backgroundSentBytes = item.optLong("backgroundSent", 0L),
-                    unknownSentBytes = item.optLong("unknownSent", 0L),
-                    relayEvents = item.optLong("events", 0L),
-                    lastActivityMillis = item.optLong("lastActivity", item.getLong("hour"))
-                )
-                buckets[key(
-                    bucket.packageName,
-                    bucket.hourStartMillis,
-                    bucket.protocol,
-                    bucket.destinationIp,
-                    bucket.destinationPort
-                )] = bucket
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val rawBuckets = prefs.getString(KEY_JSON, null)
+        if (rawBuckets != null) {
+            try {
+                val array = JSONArray(rawBuckets)
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    val bucket = MutableBucket(
+                        packageName = item.getString("package"),
+                        hourStartMillis = item.getLong("hour"),
+                        protocol = item.getString("protocol"),
+                        destinationIp = item.getString("ip"),
+                        destinationPort = item.getInt("port"),
+                        domain = item.optString("domain").takeIf { it.isNotBlank() },
+                        sentBytes = item.optLong("sent", 0L),
+                        receivedBytes = item.optLong("received", 0L),
+                        foregroundSentBytes = item.optLong("foregroundSent", 0L),
+                        backgroundSentBytes = item.optLong("backgroundSent", 0L),
+                        unknownSentBytes = item.optLong("unknownSent", 0L),
+                        relayEvents = item.optLong("events", 0L),
+                        lastActivityMillis = item.optLong("lastActivity", item.getLong("hour"))
+                    )
+                    buckets[key(
+                        bucket.packageName,
+                        bucket.hourStartMillis,
+                        bucket.protocol,
+                        bucket.destinationIp,
+                        bucket.destinationPort
+                    )] = bucket
+                }
+            } catch (_: Exception) {
+                buckets.clear()
             }
-            prune(System.currentTimeMillis())
-        } catch (_: Exception) {
-            buckets.clear()
         }
+
+        val rawFirstSeen = prefs.getString(KEY_FIRST_SEEN_JSON, null)
+        if (rawFirstSeen != null) {
+            try {
+                val array = JSONArray(rawFirstSeen)
+                for (index in 0 until array.length()) {
+                    val item = array.getJSONObject(index)
+                    firstSeen[item.getString("key")] = item.getLong("time")
+                }
+            } catch (_: Exception) {
+                firstSeen.clear()
+            }
+        }
+
+        prune(System.currentTimeMillis())
+        trimFirstSeen()
     }
 
     private fun prune(now: Long) {
@@ -354,10 +391,17 @@ object TrafficTimelineStore {
         }
     }
 
+    private fun trimFirstSeen() {
+        while (firstSeen.size > MAX_FIRST_SEEN) {
+            val oldest = firstSeen.minByOrNull { it.value }?.key ?: return
+            firstSeen.remove(oldest)
+        }
+    }
+
     private fun persist(context: Context) {
-        val array = JSONArray()
+        val bucketArray = JSONArray()
         buckets.values.forEach { bucket ->
-            array.put(
+            bucketArray.put(
                 JSONObject()
                     .put("package", bucket.packageName)
                     .put("hour", bucket.hourStartMillis)
@@ -374,15 +418,25 @@ object TrafficTimelineStore {
                     .put("lastActivity", bucket.lastActivityMillis)
             )
         }
+
+        val firstSeenArray = JSONArray()
+        firstSeen.forEach { (key, time) ->
+            firstSeenArray.put(JSONObject().put("key", key).put("time", time))
+        }
+
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
-            .putString(KEY_JSON, array.toString())
+            .putString(KEY_JSON, bucketArray.toString())
+            .putString(KEY_FIRST_SEEN_JSON, firstSeenArray.toString())
             .apply()
         lastPersistMillis = System.currentTimeMillis()
     }
 
     private fun key(packageName: String, hour: Long, protocol: String, ip: String, port: Int): String =
         "$packageName|$hour|$protocol|$ip|$port"
+
+    private fun destinationKey(packageName: String, protocol: String, ip: String, port: Int): String =
+        "$packageName|$protocol|$ip|$port"
 
     private fun endpointKey(protocol: String, ip: String, port: Int): String =
         "$protocol|$ip|$port"
