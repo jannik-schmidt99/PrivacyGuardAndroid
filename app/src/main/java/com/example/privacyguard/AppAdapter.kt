@@ -1,5 +1,6 @@
 package com.example.privacyguard
 
+import android.content.Intent
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -66,6 +67,12 @@ class AppAdapter(
                 context.getString(R.string.wifi_usage_required)
             } else {
                 context.getString(R.string.wifi_usage, formatBytes(item.receivedBytes), formatBytes(item.sentBytes))
+            }
+
+            itemView.setOnClickListener {
+                val intent = Intent(context, AppDetailActivity::class.java)
+                    .putExtra(AppDetailActivity.EXTRA_PACKAGE_NAME, item.packageName)
+                context.startActivity(intent)
             }
 
             block.setOnCheckedChangeListener(null)
