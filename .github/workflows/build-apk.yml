@@ -58,6 +58,15 @@ jobs:
             app/src/main/jni/hev-socks5-tunnel
           test "$(git -C app/src/main/jni/hev-socks5-tunnel rev-parse HEAD)" = "$HEV_TUNNEL_COMMIT"
 
+      - name: Verify HEV JNI API compatibility
+        shell: bash
+        run: |
+          JNI=app/src/main/jni/hev-socks5-tunnel/src/hev-jni.c
+          grep -F 'static jboolean native_start_service' "$JNI"
+          grep -F '"(Ljava/lang/String;I)Z"' "$JNI"
+          grep -F '"TProxyIsRunning", "()Z"' "$JNI"
+          grep -F '"TProxyGetStats", "()[J"' "$JNI"
+
       - name: Prepare fixed signing key
         if: env.SIGNING_KEY_BASE64 != ''
         shell: bash
