@@ -82,6 +82,16 @@ jobs:
           grep -F 'applySafeAreaInsets()' app/src/main/java/com/example/privacyguard/MainActivity.kt
           grep -F 'android:fitsSystemWindows="true"' app/src/main/res/layout/activity_app_detail.xml
 
+      - name: Verify behavior timeline wiring
+        shell: bash
+        run: |
+          grep -F 'TrafficTimelineStore.record(' app/src/main/java/com/example/privacyguard/ConnectionLogStore.kt
+          grep -F 'MonitorSessionStore.start(context, packageName)' app/src/main/java/com/example/privacyguard/LiveMonitorStore.kt
+          grep -F 'currentObservedMillis' app/src/main/java/com/example/privacyguard/TrafficTimelineStore.kt
+          grep -F 'comparisonReady' app/src/main/java/com/example/privacyguard/TrafficTimelineStore.kt
+          grep -F 'behaviorSummary' app/src/main/res/layout/activity_app_detail.xml
+          grep -F 'renderBehaviorReport' app/src/main/java/com/example/privacyguard/AppDetailActivity.kt
+
       - name: Prepare fixed signing key
         if: env.SIGNING_KEY_BASE64 != ''
         shell: bash
@@ -96,10 +106,10 @@ jobs:
           mkdir -p output
           if [ -n "${PRIVACYGUARD_KEYSTORE_PATH:-}" ]; then
             gradle --no-daemon :app:assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.5.4-signed.apk
+            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.6.0-signed.apk
           else
             gradle --no-daemon :app:assembleDebug
-            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.5.4-debug.apk
+            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.6.0-debug.apk
           fi
 
       - name: Upload APK
