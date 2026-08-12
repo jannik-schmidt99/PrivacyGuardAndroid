@@ -11,7 +11,7 @@ import androidx.core.view.WindowInsetsCompat
  * This is applied to android.R.id.content so individual layouts can keep their own padding.
  */
 fun AppCompatActivity.applySafeAreaInsets() {
-    WindowCompat.setDecorFitsSystemWindows(window, false)
+    WindowCompat.enableEdgeToEdge(window)
 
     val content = findViewById<View>(android.R.id.content)
     val initialLeft = content.paddingLeft
