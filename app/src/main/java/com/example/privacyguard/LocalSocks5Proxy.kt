@@ -96,7 +96,7 @@ class LocalSocks5Proxy(
     private fun readRequest(input: InputStream): SocksRequest? {
         if (readU8(input) != SOCKS_VERSION) return null
         val command = readU8(input)
-        readU8(input) // RSV
+        readU8(input)
         val address = readAddress(input, readU8(input)) ?: return null
         val port = (readU8(input) shl 8) or readU8(input)
         return SocksRequest(command, address, port)
@@ -261,6 +261,17 @@ class LocalSocks5Proxy(
             try {
                 remote.receive(packet)
                 val client = clientAddress.get() ?: continue
+
+                if (packet.port == DNS_PORT) {
+                    DnsObservationStore.observeResponse(
+                        vpnService,
+                        monitoredPackage,
+                        packet.data,
+                        packet.offset,
+                        packet.length
+                    )
+                }
+
                 val wrapped = encodeUdpPacket(packet.address, packet.port, packet.data, packet.offset, packet.length)
                 relay.send(DatagramPacket(wrapped, wrapped.size, client))
                 val ip = packet.address.hostAddress ?: packet.address.hostName
@@ -453,6 +464,7 @@ class LocalSocks5Proxy(
         private const val ATYP_IPV4 = 1
         private const val ATYP_DOMAIN = 3
         private const val ATYP_IPV6 = 4
+        private const val DNS_PORT = 53
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val MAX_UDP_PACKET = 65_535
     }
