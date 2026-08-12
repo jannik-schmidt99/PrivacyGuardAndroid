@@ -14,7 +14,7 @@ env:
   PRIVACYGUARD_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
   PRIVACYGUARD_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
   PRIVACYGUARD_NDK_VERSION: "27.3.13750724"
-  HEV_TUNNEL_COMMIT: "00c7eb9ad7ca381b0f1fee880abc1077fe9b93be"
+  HEV_TUNNEL_COMMIT: "d1178b52fccd8659201e1e3f83030f298c998865"
 
 jobs:
   build:
@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           rm -rf app/src/main/jni/hev-socks5-tunnel
-          git clone --recursive --shallow-submodules --branch 2.15.0 --depth 1 \
+          git clone --recursive --shallow-submodules --branch 2.17.0 --depth 1 \
             https://github.com/heiher/hev-socks5-tunnel.git \
             app/src/main/jni/hev-socks5-tunnel
           test "$(git -C app/src/main/jni/hev-socks5-tunnel rev-parse HEAD)" = "$HEV_TUNNEL_COMMIT"
@@ -72,10 +72,10 @@ jobs:
           mkdir -p output
           if [ -n "${PRIVACYGUARD_KEYSTORE_PATH:-}" ]; then
             gradle --no-daemon :app:assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.5.0-signed.apk
+            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.5.1-signed.apk
           else
             gradle --no-daemon :app:assembleDebug
-            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.5.0-debug.apk
+            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.5.1-debug.apk
           fi
 
       - name: Upload APK
