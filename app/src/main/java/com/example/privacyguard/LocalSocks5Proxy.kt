@@ -1,5 +1,6 @@
 package com.example.privacyguard
 
+import android.net.Network
 import android.net.VpnService
 import java.io.Closeable
 import java.io.EOFException
@@ -14,13 +15,15 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketAddress
+import java.net.UnknownHostException
 import java.util.Collections
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicReference
 
 class LocalSocks5Proxy(
     private val vpnService: VpnService,
-    private val monitoredPackage: String
+    private val monitoredPackage: String,
+    private val upstreamNetwork: Network
 ) {
     @Volatile
     private var running = false
@@ -74,7 +77,8 @@ class LocalSocks5Proxy(
                 CMD_UDP_ASSOCIATE -> handleUdpAssociate(client, input, output)
                 else -> writeReply(output, REP_COMMAND_NOT_SUPPORTED, null)
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            RelayDiagnosticsStore.error(monitoredPackage, "SOCKS client: ${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
         } finally {
             closeables.remove(client)
             closeQuietly(client)
@@ -112,11 +116,14 @@ class LocalSocks5Proxy(
         closeables.add(remote)
         try {
             if (!vpnService.protect(remote)) {
+                RelayDiagnosticsStore.error(monitoredPackage, "VPN protect(TCP) failed")
                 writeReply(clientOutput, REP_GENERAL_FAILURE, null)
                 return
             }
+            upstreamNetwork.bindSocket(remote)
             remote.tcpNoDelay = true
             remote.connect(InetSocketAddress(request.address, request.port), CONNECT_TIMEOUT_MS)
+            RelayDiagnosticsStore.tcpConnected(monitoredPackage)
             writeReply(clientOutput, REP_SUCCEEDED, remote.localSocketAddress as? InetSocketAddress)
 
             val destinationIp = request.address.hostAddress ?: request.address.hostName
@@ -154,7 +161,8 @@ class LocalSocks5Proxy(
                 closeQuietly(client)
                 reverse.cancel(true)
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            RelayDiagnosticsStore.tcpFailed(monitoredPackage, error)
             try {
                 writeReply(clientOutput, REP_HOST_UNREACHABLE, null)
             } catch (_: Exception) {
@@ -174,11 +182,13 @@ class LocalSocks5Proxy(
             relay.reuseAddress = true
             relay.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0))
             remote.reuseAddress = true
-            remote.bind(InetSocketAddress(0))
             if (!vpnService.protect(remote)) {
+                RelayDiagnosticsStore.error(monitoredPackage, "VPN protect(UDP) failed")
                 writeReply(controlOutput, REP_GENERAL_FAILURE, null)
                 return
             }
+            upstreamNetwork.bindSocket(remote)
+            remote.bind(InetSocketAddress(0))
             writeReply(
                 controlOutput,
                 REP_SUCCEEDED,
@@ -199,7 +209,8 @@ class LocalSocks5Proxy(
             }
             relayReceiver.cancel(true)
             remoteReceiver.cancel(true)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            RelayDiagnosticsStore.error(monitoredPackage, "UDP associate: ${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
         } finally {
             closeables.remove(relay)
             closeables.remove(remote)
@@ -231,6 +242,7 @@ class LocalSocks5Proxy(
                     decoded.port
                 )
                 remote.send(outbound)
+                RelayDiagnosticsStore.udpSent(monitoredPackage)
                 val ip = decoded.address.hostAddress ?: decoded.address.hostName
                 ConnectionLogStore.recordTransfer(
                     vpnService,
@@ -243,7 +255,10 @@ class LocalSocks5Proxy(
                     receivedBytes = 0L,
                     packetDelta = 1L
                 )
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                if (running && !relay.isClosed && !remote.isClosed) {
+                    RelayDiagnosticsStore.error(monitoredPackage, "UDP send: ${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
+                }
                 break
             }
         }
@@ -261,6 +276,7 @@ class LocalSocks5Proxy(
             try {
                 remote.receive(packet)
                 val client = clientAddress.get() ?: continue
+                RelayDiagnosticsStore.udpReceived(monitoredPackage)
 
                 if (packet.port == DNS_PORT) {
                     DnsObservationStore.observeResponse(
@@ -286,7 +302,10 @@ class LocalSocks5Proxy(
                     receivedBytes = packet.length.toLong(),
                     packetDelta = 1L
                 )
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                if (running && !remote.isClosed && !relay.isClosed) {
+                    RelayDiagnosticsStore.error(monitoredPackage, "UDP receive: ${error.javaClass.simpleName}: ${error.message ?: "unknown"}")
+                }
                 break
             }
         }
@@ -364,7 +383,7 @@ class LocalSocks5Proxy(
         ATYP_DOMAIN -> {
             val length = readU8(input)
             val host = String(readExact(input, length), Charsets.UTF_8)
-            InetAddress.getByName(host)
+            resolveOnUpstream(host)
         }
         else -> null
     }
@@ -390,10 +409,15 @@ class LocalSocks5Proxy(
                 val size = data[index++].toInt() and 0xff
                 if (index + size > end) return null
                 val host = String(data, index, size, Charsets.UTF_8)
-                InetAddress.getByName(host) to (index + size)
+                resolveOnUpstream(host) to (index + size)
             }
             else -> null
         }
+    }
+
+    private fun resolveOnUpstream(host: String): InetAddress {
+        return upstreamNetwork.getAllByName(host).firstOrNull()
+            ?: throw UnknownHostException(host)
     }
 
     private fun writeReply(output: OutputStream, reply: Int, address: InetSocketAddress?) {
