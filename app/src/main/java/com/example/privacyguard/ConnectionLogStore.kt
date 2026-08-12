@@ -13,9 +13,12 @@ object ConnectionLogStore {
         val destinationPort: Int,
         val firstSeenMillis: Long,
         val lastSeenMillis: Long,
-        val capturedBytes: Long,
+        val sentBytes: Long,
+        val receivedBytes: Long,
         val packetCount: Long
-    )
+    ) {
+        val capturedBytes: Long get() = sentBytes + receivedBytes
+    }
 
     private data class MutableRecord(
         val packageName: String,
@@ -25,7 +28,8 @@ object ConnectionLogStore {
         val destinationPort: Int,
         var firstSeenMillis: Long,
         var lastSeenMillis: Long,
-        var capturedBytes: Long,
+        var sentBytes: Long,
+        var receivedBytes: Long,
         var packetCount: Long
     )
 
@@ -46,35 +50,62 @@ object ConnectionLogStore {
 
     @Synchronized
     fun record(context: Context, packageName: String, packet: PacketInspector.ParsedPacket) {
+        val destination = packet.destinationAddress.hostAddress ?: return
+        recordTransfer(
+            context = context,
+            packageName = packageName,
+            protocol = packet.protocolLabel,
+            sourcePort = packet.sourcePort,
+            destinationIp = destination,
+            destinationPort = packet.destinationPort,
+            sentBytes = packet.packetBytes.toLong(),
+            receivedBytes = 0L,
+            packetDelta = 1L
+        )
+    }
+
+    @Synchronized
+    fun recordTransfer(
+        context: Context,
+        packageName: String,
+        protocol: String,
+        sourcePort: Int,
+        destinationIp: String,
+        destinationPort: Int,
+        sentBytes: Long,
+        receivedBytes: Long,
+        packetDelta: Long = 1L
+    ) {
         ensureLoaded(context)
         val now = System.currentTimeMillis()
-        val destination = packet.destinationAddress.hostAddress ?: return
         val key = listOf(
             packageName,
-            packet.protocolLabel,
-            packet.sourcePort.toString(),
-            destination,
-            packet.destinationPort.toString()
+            protocol,
+            sourcePort.toString(),
+            destinationIp,
+            destinationPort.toString()
         ).joinToString("|")
 
         val existing = records[key]
         if (existing == null) {
             records[key] = MutableRecord(
                 packageName = packageName,
-                protocol = packet.protocolLabel,
-                sourcePort = packet.sourcePort,
-                destinationIp = destination,
-                destinationPort = packet.destinationPort,
+                protocol = protocol,
+                sourcePort = sourcePort,
+                destinationIp = destinationIp,
+                destinationPort = destinationPort,
                 firstSeenMillis = now,
                 lastSeenMillis = now,
-                capturedBytes = packet.packetBytes.toLong(),
-                packetCount = 1L
+                sentBytes = sentBytes.coerceAtLeast(0L),
+                receivedBytes = receivedBytes.coerceAtLeast(0L),
+                packetCount = packetDelta.coerceAtLeast(0L)
             )
             trimOldest()
         } else {
             existing.lastSeenMillis = now
-            existing.capturedBytes += packet.packetBytes.toLong()
-            existing.packetCount += 1L
+            existing.sentBytes += sentBytes.coerceAtLeast(0L)
+            existing.receivedBytes += receivedBytes.coerceAtLeast(0L)
+            existing.packetCount += packetDelta.coerceAtLeast(0L)
         }
 
         persist(context, force = now - lastPersistMillis >= 1000L)
@@ -96,7 +127,8 @@ object ConnectionLogStore {
                     destinationPort = it.destinationPort,
                     firstSeenMillis = it.firstSeenMillis,
                     lastSeenMillis = it.lastSeenMillis,
-                    capturedBytes = it.capturedBytes,
+                    sentBytes = it.sentBytes,
+                    receivedBytes = it.receivedBytes,
                     packetCount = it.packetCount
                 )
             }
@@ -119,16 +151,18 @@ object ConnectionLogStore {
             val array = JSONArray(raw)
             for (index in 0 until array.length()) {
                 val item = array.getJSONObject(index)
+                val legacyBytes = item.optLong("bytes", 0L)
                 val record = MutableRecord(
                     packageName = item.getString("package"),
                     protocol = item.getString("protocol"),
-                    sourcePort = item.getInt("sourcePort"),
+                    sourcePort = item.optInt("sourcePort", 0),
                     destinationIp = item.getString("destinationIp"),
                     destinationPort = item.getInt("destinationPort"),
                     firstSeenMillis = item.getLong("firstSeen"),
                     lastSeenMillis = item.getLong("lastSeen"),
-                    capturedBytes = item.getLong("bytes"),
-                    packetCount = item.getLong("packets")
+                    sentBytes = if (item.has("sentBytes")) item.optLong("sentBytes", 0L) else legacyBytes,
+                    receivedBytes = item.optLong("receivedBytes", 0L),
+                    packetCount = item.optLong("packets", 0L)
                 )
                 val key = listOf(
                     record.packageName,
@@ -158,7 +192,9 @@ object ConnectionLogStore {
                     .put("destinationPort", record.destinationPort)
                     .put("firstSeen", record.firstSeenMillis)
                     .put("lastSeen", record.lastSeenMillis)
-                    .put("bytes", record.capturedBytes)
+                    .put("sentBytes", record.sentBytes)
+                    .put("receivedBytes", record.receivedBytes)
+                    .put("bytes", record.sentBytes + record.receivedBytes)
                     .put("packets", record.packetCount)
             )
         }
