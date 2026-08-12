@@ -32,6 +32,7 @@ object ServerIntelligenceResolver {
     private const val ASSET_COUNTRY = "dbip-country-lite-2026-08.mmdb"
     private const val LOCAL_ASN = "dbip-asn-lite-2026-08.mmdb"
     private const val LOCAL_COUNTRY = "dbip-country-lite-2026-08.mmdb"
+    private const val MIN_DATABASE_BYTES = 1_000_000L
 
     private val cache = ConcurrentHashMap<String, Intelligence>()
     private val missing = ConcurrentHashMap.newKeySet<String>()
@@ -153,8 +154,10 @@ object ServerIntelligenceResolver {
     }
 
     private fun copyAssetIfNeeded(context: Context, assetName: String, target: File) {
-        val assetLength = context.assets.openFd(assetName).length
-        if (target.exists() && target.length() == assetLength && target.length() > 0L) return
+        // The asset name contains the database release. A newer app release uses
+        // a new filename, so an existing sufficiently large file is already the
+        // correct immutable database and does not need to be copied again.
+        if (target.exists() && target.length() >= MIN_DATABASE_BYTES) return
 
         val temporary = File(target.parentFile, "${target.name}.tmp")
         context.assets.open(assetName).use { input ->
@@ -162,6 +165,7 @@ object ServerIntelligenceResolver {
                 input.copyTo(output)
             }
         }
+        require(temporary.length() >= MIN_DATABASE_BYTES) { "Server intelligence database is incomplete" }
         if (target.exists()) target.delete()
         if (!temporary.renameTo(target)) {
             temporary.copyTo(target, overwrite = true)
