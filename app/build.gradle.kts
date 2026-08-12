@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.privacyguard"
         minSdk = 28
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.5.4"
+        versionCode = 13
+        versionName = "0.6.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
