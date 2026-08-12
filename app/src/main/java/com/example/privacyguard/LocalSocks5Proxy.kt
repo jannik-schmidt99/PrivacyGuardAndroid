@@ -120,12 +120,14 @@ class LocalSocks5Proxy(
             writeReply(clientOutput, REP_SUCCEEDED, remote.localSocketAddress as? InetSocketAddress)
 
             val destinationIp = request.address.hostAddress ?: request.address.hostName
+            val connectionId = client.port
             val reverse = executor.submit {
                 try {
                     copyCounted(
                         remote.getInputStream(),
                         client.getOutputStream(),
                         protocol = "TCP",
+                        sourcePort = connectionId,
                         destinationIp = destinationIp,
                         destinationPort = request.port,
                         sent = false
@@ -142,6 +144,7 @@ class LocalSocks5Proxy(
                     clientInput,
                     remote.getOutputStream(),
                     protocol = "TCP",
+                    sourcePort = connectionId,
                     destinationIp = destinationIp,
                     destinationPort = request.port,
                     sent = true
@@ -182,12 +185,13 @@ class LocalSocks5Proxy(
                 InetSocketAddress(InetAddress.getByName("127.0.0.1"), relay.localPort)
             )
 
+            val associationId = client.port
             val clientAddress = AtomicReference<SocketAddress?>(null)
             val remoteReceiver = executor.submit {
-                receiveRemoteUdp(remote, relay, clientAddress)
+                receiveRemoteUdp(remote, relay, clientAddress, associationId)
             }
             val relayReceiver = executor.submit {
-                receiveSocksUdp(relay, remote, clientAddress)
+                receiveSocksUdp(relay, remote, clientAddress, associationId)
             }
 
             while (running && !client.isClosed) {
@@ -207,7 +211,8 @@ class LocalSocks5Proxy(
     private fun receiveSocksUdp(
         relay: DatagramSocket,
         remote: DatagramSocket,
-        clientAddress: AtomicReference<SocketAddress?>
+        clientAddress: AtomicReference<SocketAddress?>,
+        associationId: Int
     ) {
         val buffer = ByteArray(MAX_UDP_PACKET)
         while (running && !relay.isClosed && !remote.isClosed) {
@@ -231,7 +236,7 @@ class LocalSocks5Proxy(
                     vpnService,
                     monitoredPackage,
                     "UDP",
-                    0,
+                    associationId,
                     ip,
                     decoded.port,
                     sentBytes = payloadLength.toLong(),
@@ -247,7 +252,8 @@ class LocalSocks5Proxy(
     private fun receiveRemoteUdp(
         remote: DatagramSocket,
         relay: DatagramSocket,
-        clientAddress: AtomicReference<SocketAddress?>
+        clientAddress: AtomicReference<SocketAddress?>,
+        associationId: Int
     ) {
         val buffer = ByteArray(MAX_UDP_PACKET)
         while (running && !remote.isClosed && !relay.isClosed) {
@@ -262,7 +268,7 @@ class LocalSocks5Proxy(
                     vpnService,
                     monitoredPackage,
                     "UDP",
-                    0,
+                    associationId,
                     ip,
                     packet.port,
                     sentBytes = 0L,
@@ -279,6 +285,7 @@ class LocalSocks5Proxy(
         input: InputStream,
         output: OutputStream,
         protocol: String,
+        sourcePort: Int,
         destinationIp: String,
         destinationPort: Int,
         sent: Boolean
@@ -293,7 +300,7 @@ class LocalSocks5Proxy(
                 vpnService,
                 monitoredPackage,
                 protocol,
-                0,
+                sourcePort,
                 destinationIp,
                 destinationPort,
                 sentBytes = if (sent) length.toLong() else 0L,
