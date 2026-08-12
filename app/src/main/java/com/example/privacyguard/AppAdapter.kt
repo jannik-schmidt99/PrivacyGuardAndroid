@@ -52,22 +52,23 @@ class AppAdapter(
         private val block: MaterialSwitch = root.findViewById(R.id.blockSwitch)
 
         fun bind(item: AppEntry) {
+            val context = itemView.context
             icon.setImageDrawable(item.icon)
             name.text = item.label
             pkg.text = item.packageName
             privacy.text = if (item.privacyPermissions.isEmpty()) {
-                "Sensible Berechtigungen: keine gefunden"
+                context.getString(R.string.sensitive_permissions_none)
             } else {
-                "Sensible Berechtigungen: ${item.privacyPermissions.joinToString(", ")}"
+                context.getString(R.string.sensitive_permissions, item.privacyPermissions.joinToString(", "))
             }
             network.text = if (item.receivedBytes == null || item.sentBytes == null) {
-                "WLAN-Verkehr (24 h): Nutzungszugriff erforderlich"
+                context.getString(R.string.wifi_usage_required)
             } else {
-                "WLAN-Verkehr (24 h): ↓ ${formatBytes(item.receivedBytes)}  ↑ ${formatBytes(item.sentBytes)}"
+                context.getString(R.string.wifi_usage, formatBytes(item.receivedBytes), formatBytes(item.sentBytes))
             }
 
             block.setOnCheckedChangeListener(null)
-            block.isChecked = BlockedAppsStore.get(itemView.context).contains(item.packageName)
+            block.isChecked = BlockedAppsStore.get(context).contains(item.packageName)
             block.setOnCheckedChangeListener { _, checked -> onBlockChanged(item, checked) }
         }
     }
