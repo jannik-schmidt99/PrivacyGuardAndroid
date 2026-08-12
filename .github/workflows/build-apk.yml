@@ -15,6 +15,9 @@ env:
   PRIVACYGUARD_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
   PRIVACYGUARD_NDK_VERSION: "27.3.13750724"
   HEV_TUNNEL_COMMIT: "d1178b52fccd8659201e1e3f83030f298c998865"
+  DBIP_RELEASE: "2026-08"
+  DBIP_ASN_SHA1: "60b92758094a72c531d795833e4198a7c48f1c02"
+  DBIP_COUNTRY_SHA1: "2ca01eac8c6d8f375a2d615529519be75c580441"
 
 jobs:
   build:
@@ -92,6 +95,32 @@ jobs:
           grep -F 'behaviorSummary' app/src/main/res/layout/activity_app_detail.xml
           grep -F 'renderBehaviorReport' app/src/main/java/com/example/privacyguard/AppDetailActivity.kt
 
+      - name: Fetch pinned DB-IP Lite databases
+        shell: bash
+        run: |
+          mkdir -p app/src/main/assets
+          curl --fail --location --retry 3 \
+            "https://download.db-ip.com/free/dbip-asn-lite-${DBIP_RELEASE}.mmdb.gz" \
+            -o "$RUNNER_TEMP/dbip-asn.mmdb.gz"
+          curl --fail --location --retry 3 \
+            "https://download.db-ip.com/free/dbip-country-lite-${DBIP_RELEASE}.mmdb.gz" \
+            -o "$RUNNER_TEMP/dbip-country.mmdb.gz"
+          gzip -dc "$RUNNER_TEMP/dbip-asn.mmdb.gz" > "app/src/main/assets/dbip-asn-lite-${DBIP_RELEASE}.mmdb"
+          gzip -dc "$RUNNER_TEMP/dbip-country.mmdb.gz" > "app/src/main/assets/dbip-country-lite-${DBIP_RELEASE}.mmdb"
+          echo "$DBIP_ASN_SHA1  app/src/main/assets/dbip-asn-lite-${DBIP_RELEASE}.mmdb" | sha1sum -c -
+          echo "$DBIP_COUNTRY_SHA1  app/src/main/assets/dbip-country-lite-${DBIP_RELEASE}.mmdb" | sha1sum -c -
+          test "$(stat -c%s app/src/main/assets/dbip-asn-lite-${DBIP_RELEASE}.mmdb)" -gt 5000000
+          test "$(stat -c%s app/src/main/assets/dbip-country-lite-${DBIP_RELEASE}.mmdb)" -gt 5000000
+
+      - name: Verify server intelligence wiring
+        shell: bash
+        run: |
+          grep -F 'com.maxmind.db:maxmind-db:4.1.0' app/build.gradle.kts
+          grep -F 'ServerIntelligenceResolver' app/src/main/java/com/example/privacyguard/ServerIntelligenceView.kt
+          grep -F 'No destination IP is sent to an online lookup service.' app/src/main/java/com/example/privacyguard/ServerIntelligenceView.kt
+          grep -F 'ServerIntelligenceView' app/src/main/res/layout/activity_app_detail.xml
+          grep -F 'DB-IP Lite' app/src/main/assets/SERVER_INTELLIGENCE_NOTICE.txt
+
       - name: Prepare fixed signing key
         if: env.SIGNING_KEY_BASE64 != ''
         shell: bash
@@ -106,10 +135,10 @@ jobs:
           mkdir -p output
           if [ -n "${PRIVACYGUARD_KEYSTORE_PATH:-}" ]; then
             gradle --no-daemon :app:assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.6.0-signed.apk
+            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.7.0-signed.apk
           else
             gradle --no-daemon :app:assembleDebug
-            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.6.0-debug.apk
+            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.7.0-debug.apk
           fi
 
       - name: Upload APK
