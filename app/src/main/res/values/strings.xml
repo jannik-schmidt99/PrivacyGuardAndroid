@@ -17,4 +17,22 @@
     <string name="firewall_channel">Privacy Firewall</string>
     <string name="firewall_active">Privacy Guard active</string>
     <string name="firewall_active_text">Selected apps have no internet access.</string>
+
+    <string name="back_to_apps">← Apps</string>
+    <string name="privacy_capabilities">Privacy capabilities</string>
+    <string name="sensitive_permissions_title">Sensitive permissions</string>
+    <string name="network_activity">Network activity</string>
+    <string name="app_technical_info">Version %1$s · UID %2$d · Target SDK %3$d</string>
+    <string name="package_visibility_broad">Installed-app visibility: Broad ⚠\nQUERY_ALL_PACKAGES is declared, so this app can query any normal app installed on the device.</string>
+    <string name="package_visibility_limited">Installed-app visibility: Limited / unknown\nNo QUERY_ALL_PACKAGES permission was detected. Android may still allow visibility of some apps through normal package-visibility rules.</string>
+    <string name="no_sensitive_permissions">No sensitive permissions detected.</string>
+    <string name="granted">Granted</string>
+    <string name="denied">Denied</string>
+    <string name="usage_access_needed_detail">Usage access is required to read network history for this app.</string>
+    <string name="loading_network_usage">Loading network history…</string>
+    <string name="network_usage_unavailable">Network history is unavailable for this app or network type.</string>
+    <string name="network_usage_ready">Historical network usage</string>
+    <string name="network_row">%1$s: %2$s</string>
+    <string name="last_activity">Last recorded network activity: %1$s</string>
+    <string name="last_activity_none">Last recorded network activity: none in this period</string>
 </resources>
