@@ -10,8 +10,8 @@ android {
         applicationId = "com.example.privacyguard"
         minSdk = 28
         targetSdk = 36
-        versionCode = 4
-        versionName = "0.1.3"
+        versionCode = 5
+        versionName = "0.2.0"
     }
 
     signingConfigs {
