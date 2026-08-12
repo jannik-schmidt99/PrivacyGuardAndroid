@@ -56,10 +56,11 @@ class AppAdapter(
             icon.setImageDrawable(item.icon)
             name.text = item.label
             pkg.text = item.packageName
-            privacy.text = if (item.privacyPermissions.isEmpty()) {
+            val permissions = item.privacyPermissions.map(::englishPermission)
+            privacy.text = if (permissions.isEmpty()) {
                 context.getString(R.string.sensitive_permissions_none)
             } else {
-                context.getString(R.string.sensitive_permissions, item.privacyPermissions.joinToString(", "))
+                context.getString(R.string.sensitive_permissions, permissions.joinToString(", "))
             }
             network.text = if (item.receivedBytes == null || item.sentBytes == null) {
                 context.getString(R.string.wifi_usage_required)
@@ -71,6 +72,17 @@ class AppAdapter(
             block.isChecked = BlockedAppsStore.get(context).contains(item.packageName)
             block.setOnCheckedChangeListener { _, checked -> onBlockChanged(item, checked) }
         }
+    }
+
+    private fun englishPermission(label: String): String = when (label) {
+        "Kamera" -> "Camera"
+        "Mikrofon" -> "Microphone"
+        "Standort" -> "Location"
+        "Kontakte" -> "Contacts"
+        "Kalender" -> "Calendar"
+        "Telefonstatus" -> "Phone status"
+        "Telefonieren" -> "Phone calls"
+        else -> label
     }
 
     private fun formatBytes(bytes: Long): String {
