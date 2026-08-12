@@ -49,4 +49,16 @@
     <string name="clear_live_log">Clear observed connections</string>
     <string name="captured_connections">Observed connections</string>
     <string name="no_live_connections">No TCP/UDP connections observed yet.</string>
+
+    <string name="destination_intelligence">Destination intelligence</string>
+    <string name="destination_intelligence_explanation">Builds a persistent server history from observed traffic. Domains are best-effort and only shown when Privacy Guard actually observes a matching classic DNS response. Encrypted DNS may leave the domain unknown.</string>
+    <string name="destination_summary">%1$d destinations · %2$d new in 24 h · %3$d with domain · %4$d with background activity</string>
+    <string name="destination_history">Destination history</string>
+    <string name="clear_destination_history">Clear destination history</string>
+    <string name="no_destination_history">No destinations stored yet. Start live monitoring and use the app normally.</string>
+    <string name="domain_unknown">Domain unknown</string>
+    <string name="new_destination">NEW</string>
+    <string name="foreground_observed">Foreground activity observed</string>
+    <string name="background_observed">Background activity observed</string>
+    <string name="app_state_unknown">Foreground/background state unknown</string>
 </resources>
