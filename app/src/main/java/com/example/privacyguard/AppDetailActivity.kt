@@ -408,10 +408,7 @@ class AppDetailActivity : AppCompatActivity() {
     private fun renderBehaviorReport(now: Long = System.currentTimeMillis()) {
         if (!::behaviorSummary.isInitialized) return
         val report = TrafficTimelineStore.report(this, packageNameValue, now)
-        val destinations = DestinationHistoryStore.snapshot(this, packageNameValue)
-        val newDestinations = destinations
-            .filter { it.firstSeenMillis in report.currentStartMillis until report.currentEndMillis }
-            .sortedByDescending { it.firstSeenMillis }
+        val newDestinations = report.newDestinations
 
         behaviorHighlightsContainer.removeAllViews()
         behaviorTimelineContainer.removeAllViews()
