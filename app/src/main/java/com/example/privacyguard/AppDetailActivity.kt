@@ -42,7 +42,7 @@ class AppDetailActivity : AppCompatActivity() {
 
     private val vpnPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK && ::packageNameValue.isInitialized) {
-            startLiveCaptureNow()
+            startPassThroughMonitorNow()
         } else {
             renderLiveMonitor()
         }
@@ -80,7 +80,7 @@ class AppDetailActivity : AppCompatActivity() {
         usageAccessButton.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
-        liveMonitorButton.setOnClickListener { toggleLiveCapture() }
+        liveMonitorButton.setOnClickListener { toggleLiveMonitor() }
         clearLiveLogButton.setOnClickListener {
             ConnectionLogStore.clear(this, packageNameValue)
             renderLiveMonitor()
@@ -264,10 +264,14 @@ class AppDetailActivity : AppCompatActivity() {
         lastActivity.text = getString(R.string.last_activity_none)
     }
 
-    private fun toggleLiveCapture() {
+    private fun toggleLiveMonitor() {
         val active = LiveMonitorStore.active(this)
         if (active?.packageName == packageNameValue) {
-            stopLiveCapture()
+            stopLiveMonitor()
+            return
+        }
+        if (active != null || BlockedAppsStore.get(this).isNotEmpty()) {
+            renderLiveMonitor()
             return
         }
 
@@ -275,21 +279,24 @@ class AppDetailActivity : AppCompatActivity() {
         if (prepareIntent != null) {
             vpnPermissionLauncher.launch(prepareIntent)
         } else {
-            startLiveCaptureNow()
+            startPassThroughMonitorNow()
         }
     }
 
-    private fun startLiveCaptureNow() {
+    private fun startPassThroughMonitorNow() {
+        if (BlockedAppsStore.get(this).isNotEmpty()) {
+            renderLiveMonitor()
+            return
+        }
         ConnectionLogStore.clear(this, packageNameValue)
         val intent = Intent(applicationContext, FirewallVpnService::class.java)
-            .setAction(FirewallVpnService.ACTION_START_MONITOR)
+            .setAction(FirewallVpnService.ACTION_START_PASSTHROUGH_MONITOR)
             .putExtra(FirewallVpnService.EXTRA_PACKAGE_NAME, packageNameValue)
-            .putExtra(FirewallVpnService.EXTRA_DURATION_MILLIS, FirewallVpnService.DEFAULT_CAPTURE_MILLIS)
         ContextCompat.startForegroundService(applicationContext, intent)
         renderLiveMonitor()
     }
 
-    private fun stopLiveCapture() {
+    private fun stopLiveMonitor() {
         val intent = Intent(applicationContext, FirewallVpnService::class.java)
             .setAction(FirewallVpnService.ACTION_STOP_MONITOR)
         ContextCompat.startForegroundService(applicationContext, intent)
@@ -299,23 +306,52 @@ class AppDetailActivity : AppCompatActivity() {
     private fun renderLiveMonitor() {
         if (!::liveMonitorStatus.isInitialized) return
         val active = LiveMonitorStore.active(this)
-        val blocked = BlockedAppsStore.get(this).contains(packageNameValue)
+        val blockedPackages = BlockedAppsStore.get(this)
+        val targetBlocked = blockedPackages.contains(packageNameValue)
 
         when {
-            active?.packageName == packageNameValue -> {
+            active?.packageName == packageNameValue && active.mode == LiveMonitorStore.Mode.PASS_THROUGH -> {
+                liveMonitorStatus.text = getString(R.string.live_monitor_passthrough_active)
+                liveMonitorButton.text = getString(R.string.stop_capture)
+                liveMonitorButton.visibility = View.VISIBLE
+                liveMonitorButton.isEnabled = true
+            }
+            active?.packageName == packageNameValue && active.mode == LiveMonitorStore.Mode.DROP_CAPTURE -> {
                 val seconds = ((active.untilMillis - System.currentTimeMillis()).coerceAtLeast(0L) + 999L) / 1000L
                 liveMonitorStatus.text = getString(R.string.live_monitor_active, seconds)
                 liveMonitorButton.text = getString(R.string.stop_capture)
                 liveMonitorButton.visibility = View.VISIBLE
+                liveMonitorButton.isEnabled = true
             }
-            blocked -> {
+            active != null -> {
+                liveMonitorStatus.text = getString(
+                    R.string.live_monitor_other_app,
+                    appLabel(active.packageName)
+                )
+                liveMonitorButton.text = getString(R.string.start_capture)
+                liveMonitorButton.visibility = View.VISIBLE
+                liveMonitorButton.isEnabled = false
+            }
+            targetBlocked -> {
                 liveMonitorStatus.text = getString(R.string.live_monitor_blocked_app)
-                liveMonitorButton.visibility = View.GONE
+                liveMonitorButton.text = getString(R.string.start_capture)
+                liveMonitorButton.visibility = View.VISIBLE
+                liveMonitorButton.isEnabled = false
+            }
+            blockedPackages.isNotEmpty() -> {
+                liveMonitorStatus.text = getString(
+                    R.string.live_monitor_requires_no_blocks,
+                    blockedPackages.size
+                )
+                liveMonitorButton.text = getString(R.string.start_capture)
+                liveMonitorButton.visibility = View.VISIBLE
+                liveMonitorButton.isEnabled = false
             }
             else -> {
                 liveMonitorStatus.text = getString(R.string.live_monitor_ready)
                 liveMonitorButton.text = getString(R.string.start_capture)
                 liveMonitorButton.visibility = View.VISIBLE
+                liveMonitorButton.isEnabled = true
             }
         }
 
@@ -336,9 +372,16 @@ class AppDetailActivity : AppCompatActivity() {
             }
             val timing = if (first == last) first else "$first → $last"
             addConnectionLine(
-                "$timing   ${record.protocol}\n$endpoint\n↑ ${formatBytes(record.capturedBytes)} captured · ${record.packetCount} packets"
+                "$timing   ${record.protocol}\n$endpoint\n↑ ${formatBytes(record.sentBytes)}   ↓ ${formatBytes(record.receivedBytes)} · ${record.packetCount} relay events"
             )
         }
+    }
+
+    private fun appLabel(packageName: String): String = try {
+        val info = packageManager.getApplicationInfo(packageName, 0)
+        packageManager.getApplicationLabel(info).toString()
+    } catch (_: Exception) {
+        packageName
     }
 
     private fun addConnectionLine(text: String) {
