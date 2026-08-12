@@ -16,12 +16,15 @@ object AppVisibilityTracker {
 
     @Synchronized
     fun isLikelyForeground(context: Context, packageName: String): Boolean? {
-        if (!NetworkUsageReader.hasUsageAccess(context)) return null
-
         val now = System.currentTimeMillis()
         val current = cache[packageName]
         if (current != null && now - current.lastQueryMillis < REFRESH_MILLIS) {
             return current.foreground
+        }
+
+        if (!NetworkUsageReader.hasUsageAccess(context)) {
+            cache[packageName] = CachedState(null, now)
+            return null
         }
 
         val begin = if (current == null) {
@@ -44,6 +47,7 @@ object AppVisibilityTracker {
                 }
             }
         } catch (_: Exception) {
+            cache[packageName] = CachedState(current?.foreground, now)
             return current?.foreground
         }
 
