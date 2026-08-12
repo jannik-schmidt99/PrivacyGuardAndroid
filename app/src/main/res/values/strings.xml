@@ -35,4 +35,15 @@
     <string name="network_row">%1$s: %2$s</string>
     <string name="last_activity">Last recorded network activity: %1$s</string>
     <string name="last_activity_none">Last recorded network activity: none in this period</string>
+
+    <string name="live_connection_monitor">Live connection monitor</string>
+    <string name="live_monitor_explanation">Shows outbound TCP/UDP connection attempts with target IP, port, timestamps and captured traffic. Blocked apps are logged automatically. For an unblocked app, the 30-second capture temporarily routes it through Privacy Guard and therefore temporarily blocks its internet access.</string>
+    <string name="live_monitor_ready">Ready. Start a 30-second capture, then open the target app so it creates fresh connections.</string>
+    <string name="live_monitor_active">Capture active · %1$d s remaining · internet for this app is temporarily blocked</string>
+    <string name="live_monitor_blocked_app">This app is already blocked. Its outgoing connection attempts are captured automatically while the firewall is active.</string>
+    <string name="start_capture">Start 30-second capture</string>
+    <string name="stop_capture">Stop capture</string>
+    <string name="clear_live_log">Clear captured connections</string>
+    <string name="captured_connections">Captured connections</string>
+    <string name="no_live_connections">No TCP/UDP connections captured yet.</string>
 </resources>
