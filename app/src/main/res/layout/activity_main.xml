@@ -2,13 +2,14 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="?attr/colorSurface"
     android:orientation="vertical"
     android:padding="16dp">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Privacy Guard"
+        android:text="@string/app_name"
         android:textAppearance="?attr/textAppearanceHeadlineMedium"
         android:textStyle="bold" />
 
@@ -16,7 +17,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
-        android:text="Prüft sensible Berechtigungen und Netzwerkverbrauch. Der Schalter sperrt den kompletten Internetzugriff der gewählten App über ein lokales VPN."
+        android:text="@string/app_description"
         android:textAppearance="?attr/textAppearanceBodyMedium" />
 
     <Button
@@ -24,14 +25,16 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:text="Zugriff auf Nutzungsdaten erlauben" />
+        android:backgroundTint="?attr/colorPrimary"
+        android:text="@string/usage_access_button"
+        android:textColor="?attr/colorOnPrimary" />
 
     <EditText
         android:id="@+id/searchInput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:hint="App suchen, z. B. WeChat"
+        android:hint="@string/search_hint"
         android:inputType="text"
         android:singleLine="true" />
 
@@ -40,7 +43,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="Lade Apps…"
+        android:text="@string/loading_apps"
         android:textAppearance="?attr/textAppearanceBodySmall" />
 
     <androidx.recyclerview.widget.RecyclerView
