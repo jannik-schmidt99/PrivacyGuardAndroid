@@ -14,6 +14,7 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButtonToggleGroup
 import java.text.DateFormat
+import java.util.Date
 import java.util.concurrent.Executors
 
 class AppDetailActivity : AppCompatActivity() {
@@ -205,7 +206,7 @@ class AppDetailActivity : AppCompatActivity() {
         lastActivity.text = if (latest == null) {
             getString(R.string.last_activity_none)
         } else {
-            val formatted = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(latest)
+            val formatted = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(latest))
             getString(R.string.last_activity, formatted)
         }
     }
