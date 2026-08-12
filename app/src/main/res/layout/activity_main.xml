@@ -38,11 +38,13 @@
         android:inputType="text"
         android:singleLine="true" />
 
-    <TextView
+    <com.example.privacyguard.EnglishStatusTextView
         android:id="@+id/statusText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:visibility="gone" />
+        android:layout_marginTop="8dp"
+        android:text="@string/loading_apps"
+        android:textAppearance="?attr/textAppearanceBodySmall" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/appList"
