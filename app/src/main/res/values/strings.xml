@@ -37,13 +37,16 @@
     <string name="last_activity_none">Last recorded network activity: none in this period</string>
 
     <string name="live_connection_monitor">Live connection monitor</string>
-    <string name="live_monitor_explanation">Shows outbound TCP/UDP connection attempts with target IP, port, timestamps and captured traffic. Blocked apps are logged automatically. For an unblocked app, the 30-second capture temporarily routes it through Privacy Guard and therefore temporarily blocks its internet access.</string>
-    <string name="live_monitor_ready">Ready. Start a 30-second capture, then open the target app so it creates fresh connections.</string>
-    <string name="live_monitor_active">Capture active · %1$d s remaining · internet for this app is temporarily blocked</string>
-    <string name="live_monitor_blocked_app">This app is already blocked. Its outgoing connection attempts are captured automatically while the firewall is active.</string>
-    <string name="start_capture">Start 30-second capture</string>
-    <string name="stop_capture">Stop capture</string>
-    <string name="clear_live_log">Clear captured connections</string>
-    <string name="captured_connections">Captured connections</string>
-    <string name="no_live_connections">No TCP/UDP connections captured yet.</string>
+    <string name="live_monitor_explanation">Routes this app through Privacy Guard while keeping its internet access active. Shows TCP/UDP target IP, port, timestamps, and sent/received traffic. One app can be monitored at a time. Pass-through monitoring currently requires no active firewall blocks.</string>
+    <string name="live_monitor_ready">Ready. Start live monitoring, then use this app normally. Internet remains available.</string>
+    <string name="live_monitor_passthrough_active">Live monitoring active · internet remains available</string>
+    <string name="live_monitor_active">Legacy capture active · %1$d s remaining · internet for this app is temporarily blocked</string>
+    <string name="live_monitor_blocked_app">This app is blocked. Its outgoing attempts are still captured by the firewall. Unblock all apps to use pass-through monitoring.</string>
+    <string name="live_monitor_requires_no_blocks">Pass-through monitoring requires no blocked apps in this version. Unblock all %1$d app(s) first.</string>
+    <string name="live_monitor_other_app">Another app is currently being monitored: %1$s. Stop that monitor before starting this one.</string>
+    <string name="start_capture">Start live monitor</string>
+    <string name="stop_capture">Stop live monitor</string>
+    <string name="clear_live_log">Clear observed connections</string>
+    <string name="captured_connections">Observed connections</string>
+    <string name="no_live_connections">No TCP/UDP connections observed yet.</string>
 </resources>
