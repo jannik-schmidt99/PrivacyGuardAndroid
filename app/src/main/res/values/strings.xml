@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Privacy Guard</string>
+    <string name="app_description">Reviews sensitive permissions and network usage. Use the switch to block all internet access for a selected app through a local VPN.</string>
+    <string name="usage_access_button">Allow usage access</string>
+    <string name="search_hint">Search apps</string>
+    <string name="loading_apps">Loading apps…</string>
+    <string name="loading_apps_and_network">Loading apps and network statistics…</string>
+    <string name="block">Block</string>
+    <string name="app_icon">App icon</string>
+    <string name="sensitive_permissions_none">Sensitive permissions: none found</string>
+    <string name="sensitive_permissions">Sensitive permissions: %1$s</string>
+    <string name="wifi_usage_required">Wi-Fi traffic (24 h): usage access required</string>
+    <string name="wifi_usage">Wi-Fi traffic (24 h): ↓ %1$s  ↑ %2$s</string>
+    <string name="usage_access_active">Usage access enabled</string>
+    <string name="usage_access_missing">Usage access missing</string>
+    <string name="status_summary">%1$d apps · %2$s · %3$d blocked</string>
+    <string name="firewall_channel">Privacy Firewall</string>
+    <string name="firewall_active">Privacy Guard active</string>
+    <string name="firewall_active_text">Selected apps have no internet access.</string>
+</resources>
