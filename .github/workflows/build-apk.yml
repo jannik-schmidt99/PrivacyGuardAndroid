@@ -67,6 +67,12 @@ jobs:
           grep -F '"TProxyIsRunning", "()Z"' "$JNI"
           grep -F '"TProxyGetStats", "()[J"' "$JNI"
 
+      - name: Verify TCP socket materialization guard
+        shell: bash
+        run: |
+          grep -F 'materializeTcpSocket(remote)' app/src/main/java/com/example/privacyguard/LocalSocks5Proxy.kt
+          grep -F 'val ignored = socket.reuseAddress' app/src/main/java/com/example/privacyguard/LocalSocks5Proxy.kt
+
       - name: Prepare fixed signing key
         if: env.SIGNING_KEY_BASE64 != ''
         shell: bash
@@ -81,10 +87,10 @@ jobs:
           mkdir -p output
           if [ -n "${PRIVACYGUARD_KEYSTORE_PATH:-}" ]; then
             gradle --no-daemon :app:assembleRelease
-            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.5.2-signed.apk
+            cp app/build/outputs/apk/release/app-release.apk output/PrivacyGuard-0.5.3-signed.apk
           else
             gradle --no-daemon :app:assembleDebug
-            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.5.2-debug.apk
+            cp app/build/outputs/apk/debug/app-debug.apk output/PrivacyGuard-0.5.3-debug.apk
           fi
 
       - name: Upload APK
